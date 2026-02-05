@@ -13,6 +13,7 @@
 <script>
     a = decodeURI(location.search.substr(3))
     a = a.replace(/\\n/g, '<br>')
+    a = a.replace(/\/n/g, '<br>')
     document.body.innerHTML = a
 </script>
 
