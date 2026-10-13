@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>四轴飞行器</title>
+  <style>
+    /* 飞行器外观：调色板随色相注入，缺省值为原版的蓝 */
+    .fly {
+      display: block;
+      width: 42px;
+      height: 42px;
+      position: fixed;
+      z-index: 999
+    }
+
+    /* 机头朝向：transform 由 JS 写入（朝向 rotate + 尺寸 scale），转向走最短路径 */
+    .craft {
+      position: absolute;
+      inset: 0;
+      transition: transform 800ms ease-out
+    }
+
+    /* 枪管：机头唯一的标识，由机身中心向前伸出，枪口探出机身之外 */
+    .barrel {
+      position: absolute;
+      left: 20px;
+      top: -4px;
+      width: 2px;
+      height: 25px;
+      border-radius: 1px;
+      background: linear-gradient(to top, var(--fly-dot, #1F91DD), var(--fly-blade, #94D6FC));
+      transition: box-shadow 100ms linear
+    }
+
+    /* 枪口环：开火时整根枪管与环一起闪黄光 */
+    .barrel::before {
+      content: '';
+      position: absolute;
+      left: -2px;
+      top: -2px;
+      width: 6px;
+      height: 3px;
+      border-radius: 3px;
+      background: var(--fly-ring, #529BF8)
+    }
+
+    .barrel.flash {
+      box-shadow: 0 0 7px 1px #FFF95E
+    }
+
+    .barrel.flash::before {
+      background: #FFF95E
+    }
+
+    /* 弹丸外壳：只负责定位与朝向，位置逐帧由 JS 推进 */
+    .bolt {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 998;
+      pointer-events: none;
+      will-change: transform
+    }
+
+    /* 子弹：细长的光弹，颜色取自本机配色 */
+    .bullet {
+      width: 3px;
+      height: 12px;
+      margin: -6px 0 0 -1.5px;
+      border-radius: 1.5px;
+      background: var(--shot, #94D6FC);
+      box-shadow: 0 0 6px var(--shot, #94D6FC)
+    }
+
+    /* 导弹：较粗的弹体 + 弹头 + 跳动尾焰 */
+    .missile {
+      width: 5px;
+      height: 16px;
+      margin: -8px 0 0 -2.5px;
+      border-radius: 2.5px 2.5px 1px 1px;
+      background: var(--shot, #5EC2FC);
+      box-shadow: 0 0 5px var(--shot, #5EC2FC)
+    }
+
+    .missile::before {
+      content: '';
+      position: absolute;
+      left: 1px;
+      top: 1px;
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: #fff;
+      opacity: .8
+    }
+
+    .missile::after {
+      content: '';
+      position: absolute;
+      left: 1px;
+      bottom: -7px;
+      width: 3px;
+      height: 9px;
+      border-radius: 50%;
+      background: linear-gradient(to bottom, var(--shot, #5EC2FC), transparent);
+      animation: flame 90ms linear infinite alternate
+    }
+
+    @keyframes flame {
+      from {
+        transform: scaleY(.7);
+        opacity: .7
+      }
+
+      to {
+        transform: scaleY(1.2);
+        opacity: 1
+      }
+    }
+
+    /* 旋翼：外圈是静止的桨罩，内部的桨叶与横杆自转 */
+    .s {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border: 1px solid var(--fly-ring, #529BF8);
+      border-radius: 50%;
+      box-sizing: content-box
+    }
+
+    /* 桨盘：淡色圆盘表示桨叶扫过的范围 */
+    .s::before {
+      content: '';
+      position: absolute;
+      left: 1px;
+      top: 1px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--fly-blade, #94D6FC);
+      opacity: .14
+    }
+
+    .s_2 {
+      left: 20px
+    }
+
+    .s_3 {
+      top: 20px
+    }
+
+    .s_4 {
+      top: 20px;
+      left: 20px
+    }
+
+    /* 机臂：由旋翼轴心指向机身中心，四根连成 X 形机架 */
+    .arm {
+      position: absolute;
+      left: 10px;
+      top: 9px;
+      width: 15px;
+      height: 2px;
+      border-radius: 1px;
+      background: linear-gradient(90deg, var(--fly-bar, #5EC2FC), var(--fly-ring, #529BF8));
+      transform-origin: 0 50%;
+      transform: rotate(45deg)
+    }
+
+    .s_2 .arm {
+      transform: rotate(135deg)
+    }
+
+    .s_3 .arm {
+      transform: rotate(-45deg)
+    }
+
+    .s_4 .arm {
+      transform: rotate(-135deg)
+    }
+
+    .yp {
+      width: 18px;
+      height: 18px;
+      box-sizing: border-box;
+      border: solid 2px transparent;
+      border-radius: 50%;
+      position: absolute;
+      top: 0;
+      margin: 1px
+    }
+
+    .i_1 {
+      border-right-color: var(--fly-blade, #94D6FC)
+    }
+
+    .i_2 {
+      border-left-color: var(--fly-blade, #94D6FC)
+    }
+
+    .gz {
+      width: 16px;
+      height: 2px;
+      position: absolute;
+      top: 0;
+      background-color: var(--fly-bar, #5EC2FC);
+      margin-top: 9px;
+      margin-left: 2px
+    }
+
+    /* 机身：中心环 + 内发光，状态灯叠在其上 */
+    .core {
+      position: absolute;
+      left: 13px;
+      top: 13px;
+      width: 16px;
+      height: 16px;
+      box-sizing: border-box;
+      border: 1px solid var(--fly-ring, #529BF8);
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--fly-bar, #5EC2FC) 0%, transparent 70%)
+    }
+
+    /* d_1~d_4 是旋翼轴心盖，d_5 是机身状态灯 */
+    .d {
+      width: 5px;
+      height: 5px;
+      background-color: var(--fly-dot, #1F91DD);
+      border-radius: 50%;
+      position: absolute
+    }
+
+    .d_1 {
+      top: 8px;
+      left: 8px
+    }
+
+    .d_2 {
+      top: 8px;
+      left: 29px
+    }
+
+    .d_3 {
+      top: 29px;
+      left: 8px
+    }
+
+    .d_4 {
+      top: 29px;
+      left: 29px
+    }
+
+    .d_5 {
+      top: 19px;
+      left: 19px;
+      width: 4px;
+      height: 4px
+    }
+
+    /* 旋翼正反转、机身指示灯闪烁 */
+    .xz_s {
+      animation: cw 200ms linear infinite
+    }
+
+    .xz_n {
+      animation: ccw 200ms linear infinite
+    }
+
+    .d_5 {
+      animation: blink 500ms linear infinite
+    }
+
+    @keyframes cw {
+      from {
+        transform: rotate(0)
+      }
+
+      to {
+        transform: rotate(360deg)
+      }
+    }
+
+    @keyframes ccw {
+      from {
+        transform: rotate(0)
+      }
+
+      to {
+        transform: rotate(-360deg)
+      }
+    }
+
+    @keyframes blink {
+
+      0%,
+      90% {
+        background: var(--fly-dot, #1F91DD);
+        box-shadow: none
+      }
+
+      95%,
+      100% {
+        background: #FFF95E;
+        box-shadow: 0 0 4px #FFF95E
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <script>
+    /************************
+    * Copyright (c) 2014
+    * 功能：自由飞行的四轴飞行器
+    * 作者：Malu
+    * 版本：v0.1.2
+    * Mail: malu#malu.me
+    * Site: http://cdn.malu.me/4axis/
+    ************************/
+    (function () {
+      'use strict';
+
+      var FLY_COUNT = 1;     // 飞行器数量
+      var SIZE = 42;         // 飞行器基准尺寸(px)，须与 .fly 的宽高一致
+      var SIZE_JITTER = 10;  // 飞行器尺寸随机浮动(px)
+      var MARGIN = 32;       // 飞行范围距窗口边缘的留白(px)
+      var TILT = 8;          // 机身摆尾幅度(度)
+      var MUZZLE = 25;       // 枪口到机身中心的距离(px)，须与 .barrel 的位置一致
+      var HIT_RADIUS = 21;   // 命中判定半径(px)，再乘机身尺寸系数
+      var BULLET_SPEED = 1.15; // 子弹速度(px/ms)
+      var MISSILE_SPEED = .5;  // 导弹速度(px/ms)
+      var MISSILE_RATE = .35;  // 发射导弹的概率，其余为子弹
+      var SHOT_GAP = 140;      // 连发间隔(ms)
+      var FALL_MIN = 900;      // 被击中后坠出屏幕所需时间下限(ms)
+      var FALL_MAX = 1500;     // 上限
+
+      // 随机整数，min > max 时返回 0
+      function rand(min, max) {
+        return min > max ? 0 : Math.round(Math.random() * (max - min) + min);
+      }
+
+      // 四个旋翼：1、4 顺时针，2、3 逆时针
+      var ROTORS = [
+        {cls: 's', dir: 'xz_s'},
+        {cls: 's s_2', dir: 'xz_n'},
+        {cls: 's s_3', dir: 'xz_n'},
+        {cls: 's s_4', dir: 'xz_s'}
+      ];
+
+      // 枪管：唯一的方向标识，挂在旋翼之后、机身之前，由机身中心向前伸出
+      var BARREL = '<div class="barrel"></div>';
+
+      var BODY = '<div class="core"></div><div class="d d_1"></div>' +
+        '<div class="d d_2"></div><div class="d d_3"></div>' +
+        '<div class="d d_4"></div><div class="d d_5"></div>';
+
+      function rotorHtml(rotor) {
+        return '<div class="' + rotor.cls + '">' +
+          '<div class="arm"></div>' +
+          '<div class="yp ' + rotor.dir + ' i_1"></div>' +
+          '<div class="yp ' + rotor.dir + ' i_2"></div>' +
+          '<div class="gz ' + rotor.dir + '"></div>' +
+          '</div>';
+      }
+
+      // 机身摆尾：幅度 ±TILT，首尾角度相同，保证循环无跳变
+      // 机头朝向由 .craft 的 transform 负责，这里只做小幅摆动；原来那种 0~360° 乱转会把机头转得认不出来
+      function spinKeyframes(name) {
+        function frame(deg) {
+          return '{transform:rotate(' + deg + 'deg)}';
+        }
+        var start = rand(-TILT, TILT);
+        var css = '@keyframes ' + name + '{0%' + frame(start);
+        for (var j = 20; j < 100; j += 20) {
+          css += j + '%' + frame(rand(-TILT, TILT));
+        }
+        return css + '100%' + frame(start) + '}';
+      }
+
+      // 机头方向 = 前进方向。rotate(0) 时机头朝上，故由 atan2(dx, -dy) 求角
+      function headingTo(fromX, fromY, toX, toY) {
+        return Math.atan2(toX - fromX, fromY - toY) * 180 / Math.PI;
+      }
+
+      // 写入朝向：折到与上一角度相差 180° 以内，让过渡走最短路径而不是绕一大圈
+      function turn(el, deg) {
+        var prev = parseFloat(el.dataset.heading || 0);
+        while (deg - prev > 180) {
+          deg -= 360;
+        }
+        while (deg - prev < -180) {
+          deg += 360;
+        }
+        el.dataset.heading = deg;
+        el.querySelector('.craft').style.transform =
+          'rotate(' + deg + 'deg) scale(' + el.dataset.scale + ')';
+      }
+
+      // 实际朝向 = 机头朝向 + 摆尾动画当前角度（出膛方向要和机头对齐）
+      function craftAngle(el) {
+        var deg = parseFloat(el.dataset.heading || 0);
+        var t = getComputedStyle(el).transform;
+        if (t && t !== 'none') {
+          try {
+            var m = new DOMMatrixReadOnly(t);
+            deg += Math.atan2(m.b, m.a) * 180 / Math.PI;
+          } catch (e) {
+            // 环境不支持 DOMMatrixReadOnly 时退回纯朝向
+          }
+        }
+        return deg;
+      }
+
+      // ===== 存活飞行器：被击中后即移出此表，飞行与开火循环随之停摆 =====
+      var alive = [];
+
+      function isAlive(el) {
+        return alive.indexOf(el) >= 0;
+      }
+
+      // ===== 弹丸：全局只跑一个动画循环，逐帧推进并做命中、出界判定 =====
+      var projectiles = [];
+      var rafId = 0;
+
+      function loop(now) {
+        var dt = loop.last ? Math.min(now - loop.last, 50) : 16;
+        loop.last = now;
+
+        // 每帧只查一次布局，缓存各存活机身的位置与命中半径
+        var targets = null;
+        if (alive.length) {
+          targets = [];
+          for (var k = 0; k < alive.length; k++) {
+            var t = alive[k];
+            var r = t.getBoundingClientRect();
+            targets.push({
+              el: t,
+              x: r.left + r.width / 2,
+              y: r.top + r.height / 2,
+              r: HIT_RADIUS * parseFloat(t.dataset.scale)
+            });
+          }
+        }
+
+        for (var i = projectiles.length - 1; i >= 0; i--) {
+          var p = projectiles[i];
+          p.x += p.dx * p.speed * dt;
+          p.y += p.dy * p.speed * dt;
+          p.el.style.transform = 'translate(' + p.x.toFixed(1) + 'px,' + p.y.toFixed(1) +
+            'px) rotate(' + p.deg.toFixed(1) + 'deg)';
+
+          // 命中其他飞行器
+          var victim = null;
+          if (targets) {
+            for (var m = 0; m < targets.length; m++) {
+              var g = targets[m];
+              if (g.el === p.owner) continue;   // 不打自己
+              var gx = p.x - g.x;
+              var gy = p.y - g.y;
+              if (gx * gx + gy * gy <= g.r * g.r) {
+                victim = g.el;
+                break;
+              }
+            }
+          }
+          if (victim && crash(victim)) {
+            p.el.remove();
+            projectiles.splice(i, 1);
+            continue;
+          }
+
+          // 一直飞到视口之外才回收
+          if (p.x < -40 || p.x > maxX + 40 || p.y < -40 || p.y > maxY + 40) {
+            p.el.remove();
+            projectiles.splice(i, 1);
+          }
+        }
+
+        rafId = projectiles.length ? requestAnimationFrame(loop) : 0;
+      }
+
+      // 有弹丸在飞才驱动循环，全部回收后自动停摆
+      function ensureLoop() {
+        if (!rafId) {
+          loop.last = 0;
+          rafId = requestAnimationFrame(loop);
+        }
+      }
+
+      // 开火：从枪口沿当前机头朝向射出子弹或导弹，颜色取自本机配色
+      function shoot(el) {
+        if (!isAlive(el)) return;
+
+        var deg = craftAngle(el);
+        var rad = deg * Math.PI / 180;
+        var rect = el.getBoundingClientRect();
+        var reach = MUZZLE * parseFloat(el.dataset.scale);
+        var x = rect.left + rect.width / 2 + Math.sin(rad) * reach;
+        var y = rect.top + rect.height / 2 - Math.cos(rad) * reach;
+
+        var missile = Math.random() < MISSILE_RATE;
+        var bolt = document.createElement('div');
+
+        bolt.className = 'bolt ' + (missile ? 'missile' : 'bullet');
+        bolt.style.setProperty('--shot', missile ?
+          'hsl(' + el.dataset.hue + ', 92%, 65%)' :
+          'hsl(' + el.dataset.hue + ', 95%, 78%)');
+        bolt.style.transform = 'translate(' + x + 'px,' + y + 'px) rotate(' + deg + 'deg)';
+        document.body.appendChild(bolt);
+
+        projectiles.push({
+          el: bolt,
+          owner: el,
+          x: x,
+          y: y,
+          dx: Math.sin(rad),
+          dy: -Math.cos(rad),
+          deg: deg,
+          speed: missile ? MISSILE_SPEED : BULLET_SPEED
+        });
+
+        // 炮口闪光
+        var barrel = el.querySelector('.barrel');
+        barrel.classList.add('flash');
+        setTimeout(function () {barrel.classList.remove('flash');}, 100);
+
+        ensureLoop();
+      }
+
+      // 被击中：停飞停火，垂直坠出屏幕后销毁元素
+      function crash(el) {
+        if (!isAlive(el)) return false;
+        alive.splice(alive.indexOf(el), 1);
+
+        clearTimeout(el._flyTimer);
+        clearTimeout(el._fireTimer);
+
+        // 冻结当前位置：飞行中的 left/opacity 是"过渡中间值"，而 inline 值指向本段航线终点。
+        // 下一行换成只含 top 的新过渡后，left 失去过渡规则会瞬间跳到 inline 终点——
+        // 看起来就像瞬移到别处才坠落。先把计算值钉回 inline，跳变即消失。
+        var cs = getComputedStyle(el);
+        el.style.left = cs.left;
+        el.style.opacity = cs.opacity;
+
+        var dur = rand(FALL_MIN, FALL_MAX);
+        el.style.transition = 'top ' + dur + 'ms cubic-bezier(.45,0,.9,.6)';
+        el.style.top = (maxY + 200) + 'px';
+
+        setTimeout(function () {el.remove();}, dur + 60);
+        return true;
+      }
+
+      // 随机开火：每次 1~3 连发，隔 2.5~7 秒再来一轮
+      function openFire(el) {
+        function volley() {
+          if (!isAlive(el)) return;
+          var shots = rand(1, 3);
+          for (var i = 0; i < shots; i++) {
+            setTimeout(function () {shoot(el);}, i * SHOT_GAP);
+          }
+          el._fireTimer = setTimeout(volley, rand(2500, 7000));
+        }
+        el._fireTimer = setTimeout(volley, rand(1500, 4000));
+      }
+
+      var flyerSeq = 0;   // 飞行器全局序号：多次调用 creatFly 时类名与关键帧不冲突
+
+      // 建立飞行器，返回本次新建的元素
+      function createFlyers(count) {
+        var css = '';
+        var fragment = document.createDocumentFragment();
+        var created = [];
+
+        for (var i = 0; i < count; i++) {
+          var name = 'move' + flyerSeq++;
+          var fly = document.createElement('div');
+          fly.className = name + ' fly';
+
+          // 四个旋翼、枪管、机身都装在 .craft 里：
+          // 机头朝向写在 .craft 上，摆尾写在 .fly 上，两层互不干扰
+          var craft = document.createElement('div');
+          craft.className = 'craft';
+          craft.innerHTML = ROTORS.map(rotorHtml).join('') + BARREL + BODY;
+          fly.appendChild(craft);
+
+          // 随机配色：只随机色相，四层明度沿用原配色比例（色相 214 即原本的蓝）
+          var hue = rand(0, 359);
+          fly.dataset.hue = hue;
+          fly.style.setProperty('--fly-ring', 'hsl(' + hue + ', 92%, 65%)');
+          fly.style.setProperty('--fly-blade', 'hsl(' + hue + ', 95%, 78%)');
+          fly.style.setProperty('--fly-bar', 'hsl(' + hue + ', 96%, 68%)');
+          fly.style.setProperty('--fly-dot', 'hsl(' + hue + ', 75%, 49%)');
+
+          // 随机尺寸：基准 42px 上下浮动 10px → 0.76~1.24 倍
+          var px = rand(SIZE - SIZE_JITTER, SIZE + SIZE_JITTER);
+          var scale = Math.round((px / SIZE) * 100) / 100;
+          fly.dataset.scale = scale;
+          fly.dataset.heading = 0;
+          craft.style.transform = 'rotate(0deg) scale(' + scale + ')';
+
+          // 初始位于屏幕上方，水平方向随机
+          fly.style.left = rand(-1440, 1440) + 'px';
+          fly.style.top = '-50px';
+
+          // 摆尾动画
+          css += '.' + name + '{animation:' + name + ' 6000ms ease-in-out infinite}' +
+            spinKeyframes(name);
+
+          created.push(fly);
+          fragment.appendChild(fly);
+        }
+
+        var style = document.createElement('style');
+        style.textContent = css;
+        document.head.appendChild(style);
+        document.body.appendChild(fragment);
+
+        return created;
+      }
+
+      var maxX = 0;
+      var maxY = 0;
+
+      function updateBounds() {
+        maxX = window.innerWidth;
+        maxY = window.innerHeight;
+      }
+
+      // 随机飞行动画：一段飞完立刻开始下一段
+      function fly(el) {
+        if (!isAlive(el)) return;
+
+        var duration = rand(5000, 10000);
+        var toX = rand(MARGIN, maxX - MARGIN);
+        var toY = rand(MARGIN, maxY - MARGIN);
+
+        el.style.transition = 'top ' + duration + 'ms ease-in-out,' +
+          'left ' + duration + 'ms ease-in-out,' +
+          'opacity ' + duration + 'ms ease-in-out';
+        el.style.top = toY + 'px';
+        el.style.left = toX + 'px';
+        el.style.opacity = rand(6, 10) / 10;
+
+        // 机头转向下一段航向：用实时位置求角，飞行途中改向也能立刻掉头
+        var rect = el.getBoundingClientRect();
+        turn(el, headingTo(rect.left + rect.width / 2, rect.top + rect.height / 2,
+          toX + SIZE / 2, toY + SIZE / 2));
+
+        el._flyTimer = setTimeout(function () {fly(el);}, duration);
+      }
+
+      updateBounds();
+      window.addEventListener('resize', updateBounds);
+
+      var flyers = createFlyers(FLY_COUNT);
+
+      // 等浏览器认下屏幕外的初始位置后再起飞，保证第一段是"飞入"而不是瞬移
+      function launch(list) {
+        var started = false;
+        function start() {
+          if (started) return;
+          started = true;
+          for (var i = 0; i < list.length; i++) {
+            alive.push(list[i]);
+            fly(list[i]);
+            openFire(list[i]);
+          }
+        }
+        requestAnimationFrame(function () {
+          requestAnimationFrame(start);
+        });
+        setTimeout(start, 300);   // 页面不可见时 rAF 不触发，兜底起飞
+      }
+
+      // 放飞指定的飞行器
+      launch(flyers);
+
+      /**
+       * 全局 API：新建并放飞 count 架飞行器
+       * 用法：creatFly(1) / creatFly(5)，默认 3 架已自动放飞
+       * @param {number} count 飞行器数量
+       * @return {number} 本次新建的飞行器数量
+       */
+      window.creatFly = function (count) {
+        var created = createFlyers(count);
+        launch(created);
+        return created.length;
+      };
+    })();
+  </script>
+</body>
+
+</html>
