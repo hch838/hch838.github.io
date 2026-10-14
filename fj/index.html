@@ -306,6 +306,32 @@
         box-shadow: 0 0 4px #FFF95E
       }
     }
+
+    /* 落点涟漪：点击生成时在落点扩散一圈并淡出，只是即时反馈 */
+    .ripple {
+      position: fixed;
+      width: 16px;
+      height: 16px;
+      margin: -8px 0 0 -8px;
+      box-sizing: border-box;
+      border: 2px solid var(--spawn, #529BF8);
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 997;
+      animation: ripple 420ms ease-out forwards
+    }
+
+    @keyframes ripple {
+      from {
+        transform: scale(.6);
+        opacity: .9
+      }
+
+      to {
+        transform: scale(3.4);
+        opacity: 0
+      }
+    }
   </style>
 </head>
 
@@ -336,6 +362,17 @@
       var SHOT_GAP = 140;      // 连发间隔(ms)
       var FALL_MIN = 900;      // 被击中后坠出屏幕所需时间下限(ms)
       var FALL_MAX = 1500;     // 上限
+      var HUE_RED = 0;         // 红方色相：上半屏点击生成
+      var HUE_BLUE = 214;      // 蓝方色相（原版的蓝）：下半屏点击生成
+
+      // 阵营 → 色相。阵营就等于色相：色相相同即同一方，同方之间不互相击落。
+      // 传 'red' / 'blue' 走固定两方；不传（creatFly 直接调用）则每架各抽一个随机色相，
+      // 相当于各自为战。
+      function factionHue(faction) {
+        if (faction === 'red') return HUE_RED;
+        if (faction === 'blue') return HUE_BLUE;
+        return rand(0, 359);
+      }
 
       // 随机整数，min > max 时返回 0
       function rand(min, max) {
@@ -458,6 +495,7 @@
             for (var m = 0; m < targets.length; m++) {
               var g = targets[m];
               if (g.el === p.owner) continue;   // 不打自己
+              if (g.el.dataset.faction === p.faction) continue;   // 同色相 = 同一方，不击落，弹丸直接穿过去
               var gx = p.x - g.x;
               var gy = p.y - g.y;
               if (gx * gx + gy * gy <= g.r * g.r) {
@@ -514,6 +552,7 @@
         projectiles.push({
           el: bolt,
           owner: el,
+          faction: el.dataset.faction,   // 命中判定用：与目标色相相同即同一方，不判命中
           x: x,
           y: y,
           dx: Math.sin(rad),
@@ -568,8 +607,9 @@
 
       var flyerSeq = 0;   // 飞行器全局序号：多次调用 creatFly 时类名与关键帧不冲突
 
-      // 建立飞行器，返回本次新建的元素
-      function createFlyers(count) {
+      // 建立飞行器，返回本次新建的元素。
+      // faction 传 'red' / 'blue' 走固定阵营；不传则每架各抽一个随机色相（各自为战）
+      function createFlyers(count, faction) {
         var css = '';
         var fragment = document.createDocumentFragment();
         var created = [];
@@ -586,9 +626,11 @@
           craft.innerHTML = ROTORS.map(rotorHtml).join('') + BARREL + BODY;
           fly.appendChild(craft);
 
-          // 随机配色：只随机色相，四层明度沿用原配色比例（色相 214 即原本的蓝）
-          var hue = rand(0, 359);
+          // 阵营配色：色相即阵营。固定阵营取固定色相，未指定则每架各抽一个随机色相；
+          // 四层明度沿用原配色比例
+          var hue = factionHue(faction);
           fly.dataset.hue = hue;
+          fly.dataset.faction = hue;   // 命中判定直接比这个值，色相同即同一方
           fly.style.setProperty('--fly-ring', 'hsl(' + hue + ', 92%, 65%)');
           fly.style.setProperty('--fly-blade', 'hsl(' + hue + ', 95%, 78%)');
           fly.style.setProperty('--fly-bar', 'hsl(' + hue + ', 96%, 68%)');
@@ -655,7 +697,8 @@
       updateBounds();
       window.addEventListener('resize', updateBounds);
 
-      var flyers = createFlyers(FLY_COUNT);
+      // 开局这架从屏幕上方飞入，归入上半屏的红方
+      var flyers = createFlyers(FLY_COUNT, 'red');
 
       // 等浏览器认下屏幕外的初始位置后再起飞，保证第一段是"飞入"而不是瞬移
       function launch(list) {
@@ -680,15 +723,51 @@
 
       /**
        * 全局 API：新建并放飞 count 架飞行器
-       * 用法：creatFly(1) / creatFly(5)，默认 3 架已自动放飞
+       * 用法：creatFly(10) → 10 架随机色相（各自为战）；creatFly(2, 'blue') → 2 架指定蓝方
        * @param {number} count 飞行器数量
+       * @param {string} [faction] 'red' 或 'blue'；不传则每架各抽一个随机色相
        * @return {number} 本次新建的飞行器数量
        */
-      window.creatFly = function (count) {
-        var created = createFlyers(count);
+      window.creatFly = function (count, faction) {
+        var created = createFlyers(count, faction);
         launch(created);
         return created.length;
       };
+
+      // 落点涟漪：用该机的色相在落点扩散一圈，作为"已生成"的即时反馈
+      function ripple(x, y, hue) {
+        var r = document.createElement('div');
+        r.className = 'ripple';
+        r.style.setProperty('--spawn', 'hsl(' + hue + ', 92%, 65%)');
+        r.style.left = x + 'px';
+        r.style.top = y + 'px';
+        document.body.appendChild(r);
+        setTimeout(function () {r.remove();}, 460);
+      }
+
+      // 在指定位置生成一架：机身中心落在点击点上，就地起飞（不从屏幕外飞入）
+      // 阵营由落点所在的半屏决定：上半屏红，下半屏蓝
+      function spawnAt(cx, cy) {
+        var fly = createFlyers(1, cy < maxY / 2 ? 'red' : 'blue')[0];
+
+        // 覆盖 createFlyers 里"屏幕上方随机水平位置"的初始值。此刻还没发生过样式计算，
+        // 所以这里改坐标不会触发过渡——真正起飞要等 launch 里延后的 fly() 才开始。
+        // 贴近边缘时收进视口，别让飞行器一半露在屏幕外
+        fly.style.left = Math.min(Math.max(cx - SIZE / 2, 0), maxX - SIZE) + 'px';
+        fly.style.top = Math.min(Math.max(cy - SIZE / 2, 0), maxY - SIZE) + 'px';
+
+        ripple(cx, cy, fly.dataset.hue);
+        launch([fly]);   // 沿用起飞流程：延后一帧再飞，保证第一段是"从这里飞走"而不是瞬移
+        return fly;
+      }
+
+      // 鼠标或触控在空白处按下即在落点生成一架：上半屏出红方，下半屏出蓝方。
+      // 点在已有飞行器上不生成，避免误触
+      document.addEventListener('pointerdown', function (e) {
+        if (e.button > 0) return;   // 只响应主键与触摸，右键/中键不管
+        if (e.target.closest && e.target.closest('.fly')) return;   // 空白处才算
+        spawnAt(e.clientX, e.clientY);
+      });
     })();
   </script>
 </body>
