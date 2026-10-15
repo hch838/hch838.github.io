@@ -1,0 +1,1850 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>四轴飞行器</title>
+  <style>
+    /* 飞行器外观：调色板随色相注入，缺省值为原版的蓝 */
+    .fly {
+      display: block;
+      width: 42px;
+      height: 42px;
+      position: fixed;
+      z-index: 999
+    }
+
+    /* 机头朝向：transform 由 JS 写入（朝向 rotate + 尺寸 scale），转向走最短路径 */
+    .craft {
+      position: absolute;
+      inset: 0;
+      transition: transform 800ms ease-out
+    }
+
+    /* 枪管：机头唯一的标识，由机身中心向前伸出，枪口探出机身之外 */
+    .barrel {
+      position: absolute;
+      left: 20px;
+      top: -4px;
+      width: 2px;
+      height: 25px;
+      border-radius: 1px;
+      background: linear-gradient(to top, var(--fly-dot, #1F91DD), var(--fly-blade, #94D6FC));
+      transition: box-shadow 100ms linear
+    }
+
+    /* 枪口环：开火时整根枪管与环一起闪黄光 */
+    .barrel::before {
+      content: '';
+      position: absolute;
+      left: -2px;
+      top: -2px;
+      width: 6px;
+      height: 3px;
+      border-radius: 3px;
+      background: var(--fly-ring, #529BF8)
+    }
+
+    .barrel.flash {
+      box-shadow: 0 0 7px 1px #FFF95E
+    }
+
+    .barrel.flash::before {
+      background: #FFF95E
+    }
+
+    /* 弹丸外壳：只负责定位与朝向，位置逐帧由 JS 推进 */
+    .bolt {
+      position: fixed;
+      left: 0;
+      top: 0;
+      z-index: 998;
+      pointer-events: none;
+      will-change: transform
+    }
+
+    /* 子弹：细长的光弹，颜色取自本机配色 */
+    .bullet {
+      width: 3px;
+      height: 12px;
+      margin: -6px 0 0 -1.5px;
+      border-radius: 1.5px;
+      background: var(--shot, #94D6FC);
+      box-shadow: 0 0 6px var(--shot, #94D6FC)
+    }
+
+    /* 导弹：较粗的弹体 + 弹头 + 跳动尾焰 */
+    .missile {
+      width: 5px;
+      height: 16px;
+      margin: -8px 0 0 -2.5px;
+      border-radius: 2.5px 2.5px 1px 1px;
+      background: var(--shot, #5EC2FC);
+      box-shadow: 0 0 5px var(--shot, #5EC2FC)
+    }
+
+    .missile::before {
+      content: '';
+      position: absolute;
+      left: 1px;
+      top: 1px;
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: #fff;
+      opacity: .8
+    }
+
+    .missile::after {
+      content: '';
+      position: absolute;
+      left: 1px;
+      bottom: -7px;
+      width: 3px;
+      height: 9px;
+      border-radius: 50%;
+      background: linear-gradient(to bottom, var(--shot, #5EC2FC), transparent);
+      animation: flame 90ms linear infinite alternate
+    }
+
+    @keyframes flame {
+      from {
+        transform: scaleY(.7);
+        opacity: .7
+      }
+
+      to {
+        transform: scaleY(1.2);
+        opacity: 1
+      }
+    }
+
+    /* 旋翼：外圈是静止的桨罩，内部的桨叶与横杆自转 */
+    .s {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border: 1px solid var(--fly-ring, #529BF8);
+      border-radius: 50%;
+      box-sizing: content-box
+    }
+
+    /* 桨盘：淡色圆盘表示桨叶扫过的范围 */
+    .s::before {
+      content: '';
+      position: absolute;
+      left: 1px;
+      top: 1px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: var(--fly-blade, #94D6FC);
+      opacity: .14
+    }
+
+    .s_2 {
+      left: 20px
+    }
+
+    .s_3 {
+      top: 20px
+    }
+
+    .s_4 {
+      top: 20px;
+      left: 20px
+    }
+
+    /* 机臂：由旋翼轴心指向机身中心，四根连成 X 形机架 */
+    .arm {
+      position: absolute;
+      left: 10px;
+      top: 9px;
+      width: 15px;
+      height: 2px;
+      border-radius: 1px;
+      background: linear-gradient(90deg, var(--fly-bar, #5EC2FC), var(--fly-ring, #529BF8));
+      transform-origin: 0 50%;
+      transform: rotate(45deg)
+    }
+
+    .s_2 .arm {
+      transform: rotate(135deg)
+    }
+
+    .s_3 .arm {
+      transform: rotate(-45deg)
+    }
+
+    .s_4 .arm {
+      transform: rotate(-135deg)
+    }
+
+    .yp {
+      width: 18px;
+      height: 18px;
+      box-sizing: border-box;
+      border: solid 2px transparent;
+      border-radius: 50%;
+      position: absolute;
+      top: 0;
+      margin: 1px
+    }
+
+    .i_1 {
+      border-right-color: var(--fly-blade, #94D6FC)
+    }
+
+    .i_2 {
+      border-left-color: var(--fly-blade, #94D6FC)
+    }
+
+    .gz {
+      width: 16px;
+      height: 2px;
+      position: absolute;
+      top: 0;
+      background-color: var(--fly-bar, #5EC2FC);
+      margin-top: 9px;
+      margin-left: 2px
+    }
+
+    /* 机身：中心环 + 内发光，状态灯叠在其上 */
+    .core {
+      position: absolute;
+      left: 13px;
+      top: 13px;
+      width: 16px;
+      height: 16px;
+      box-sizing: border-box;
+      border: 1px solid var(--fly-ring, #529BF8);
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--fly-bar, #5EC2FC) 0%, transparent 70%)
+    }
+
+    /* d_1~d_4 是旋翼轴心盖，d_5 是机身状态灯 */
+    .d {
+      width: 5px;
+      height: 5px;
+      background-color: var(--fly-dot, #1F91DD);
+      border-radius: 50%;
+      position: absolute
+    }
+
+    .d_1 {
+      top: 8px;
+      left: 8px
+    }
+
+    .d_2 {
+      top: 8px;
+      left: 29px
+    }
+
+    .d_3 {
+      top: 29px;
+      left: 8px
+    }
+
+    .d_4 {
+      top: 29px;
+      left: 29px
+    }
+
+    .d_5 {
+      top: 19px;
+      left: 19px;
+      width: 4px;
+      height: 4px
+    }
+
+    /* 旋翼正反转、机身指示灯闪烁 */
+    .xz_s {
+      animation: cw 200ms linear infinite
+    }
+
+    .xz_n {
+      animation: ccw 200ms linear infinite
+    }
+
+    .d_5 {
+      animation: blink 500ms linear infinite
+    }
+
+    @keyframes cw {
+      from {
+        transform: rotate(0)
+      }
+
+      to {
+        transform: rotate(360deg)
+      }
+    }
+
+    @keyframes ccw {
+      from {
+        transform: rotate(0)
+      }
+
+      to {
+        transform: rotate(-360deg)
+      }
+    }
+
+    @keyframes blink {
+
+      0%,
+      90% {
+        background: var(--fly-dot, #1F91DD);
+        box-shadow: none
+      }
+
+      95%,
+      100% {
+        background: #FFF95E;
+        box-shadow: 0 0 4px #FFF95E
+      }
+    }
+
+    /* 落点涟漪：点击生成时在落点扩散一圈并淡出，只是即时反馈 */
+    .ripple {
+      position: fixed;
+      width: 16px;
+      height: 16px;
+      margin: -8px 0 0 -8px;
+      box-sizing: border-box;
+      border: 2px solid var(--spawn, #529BF8);
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 997;
+      animation: ripple 420ms ease-out forwards
+    }
+
+    @keyframes ripple {
+      from {
+        transform: scale(.6);
+        opacity: .9
+      }
+
+      to {
+        transform: scale(3.4);
+        opacity: 0
+      }
+    }
+
+    /* ===== 机型库 ==================================================
+       8 种俯视造型，机头统一朝上(-y)，配色全部走 --fly-* 四个变量，
+       换色相即整套换色。造型画在 42x42 的盒子里，允许向外溢出。 */
+
+    /* 状态灯：各机型机身里的指示灯，闪烁规则与四轴一致 */
+    .heli-lamp, .twin-lamp, .jet-lamp, .al-lamp, .aw-lamp, .ms-lamp, .sat-lamp,
+    .tank-lamp {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--fly-dot, #1F91DD);
+      animation: blink 500ms linear infinite
+    }
+
+    /* 击毁爆炸：空中单位坠出屏幕、地面单位原地被毁时炸一下，纯视觉反馈 */
+    .boom {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 12px;
+      height: 12px;
+      margin: -6px 0 0 -6px;
+      pointer-events: none;
+      z-index: 997
+    }
+
+    .boom::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: radial-gradient(circle, #FFF3B0, #FF9A3C 55%, transparent 72%);
+      animation: burst 520ms ease-out forwards
+    }
+
+    .boom::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 26px;
+      height: 26px;
+      margin: -13px 0 0 -13px;
+      border: 2px solid #FFB347;
+      border-radius: 50%;
+      animation: shock 620ms ease-out forwards
+    }
+
+    @keyframes burst {
+      from {
+        transform: scale(.5);
+        opacity: 1
+      }
+
+      to {
+        transform: scale(2.8);
+        opacity: 0
+      }
+    }
+
+    @keyframes shock {
+      from {
+        transform: scale(.3);
+        opacity: .9
+      }
+
+      to {
+        transform: scale(2.4);
+        opacity: 0
+      }
+    }
+
+    /* —— 单旋翼直升机：纵向机身 + 十字主旋翼 + 尾梁尾翼 —— */
+    .craft.heli .heli-fus {
+      position: absolute;
+      left: 15px;
+      top: 10px;
+      width: 12px;
+      height: 27px;
+      border-radius: 6px 6px 3px 3px;
+      background: linear-gradient(90deg, var(--fly-dot, #1F91DD), var(--fly-bar, #5EC2FC))
+    }
+
+    .craft.heli .heli-boom {
+      position: absolute;
+      left: 18px;
+      top: 32px;
+      width: 6px;
+      height: 15px;
+      border-radius: 0 0 3px 3px;
+      background: var(--fly-dot, #1F91DD)
+    }
+
+    .craft.heli .heli-fin {
+      position: absolute;
+      left: 11px;
+      top: 42px;
+      width: 20px;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--fly-ring, #529BF8)
+    }
+
+    .craft.heli .heli-rotor {
+      position: absolute;
+      left: 3px;
+      top: 3px;
+      width: 36px;
+      height: 36px;
+      animation: cw 70ms linear infinite
+    }
+
+    .craft.heli .heli-rotor i {
+      position: absolute;
+      left: 18px;
+      top: 17px;
+      width: 34px;
+      height: 2px;
+      margin-top: -1px;
+      border-radius: 1px;
+      background: var(--fly-blade, #94D6FC);
+      opacity: .85
+    }
+
+    .craft.heli .heli-rotor i:nth-child(1) {
+      transform: rotate(0deg)
+    }
+
+    .craft.heli .heli-rotor i:nth-child(2) {
+      transform: rotate(45deg)
+    }
+
+    .craft.heli .heli-rotor i:nth-child(3) {
+      transform: rotate(90deg)
+    }
+
+    .craft.heli .heli-rotor i:nth-child(4) {
+      transform: rotate(135deg)
+    }
+
+    /* 主旋翼桨盘：淡色圆盘表示桨叶扫过的范围，和四轴的 .s::before 同一套观感 */
+    .craft.heli .heli-rotor::after {
+      content: '';
+      position: absolute;
+      left: 5px;
+      top: 5px;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--fly-blade, #94D6FC);
+      opacity: .16
+    }
+
+    .craft.heli .heli-lamp {
+      left: 19px;
+      top: 15px
+    }
+
+    /* —— 双桨机：细长机身 + 大横翼 + 翼尖双螺旋桨 —— */
+    .craft.twin .twin-fus {
+      position: absolute;
+      left: 17px;
+      top: 7px;
+      width: 8px;
+      height: 29px;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--fly-dot, #1F91DD), var(--fly-bar, #5EC2FC))
+    }
+
+    .craft.twin .twin-wing {
+      position: absolute;
+      left: 0;
+      top: 16px;
+      width: 42px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--fly-ring, #529BF8)
+    }
+
+    .craft.twin .twin-prop {
+      position: absolute;
+      top: 10px;
+      width: 13px;
+      height: 13px;
+      border: 1px solid var(--fly-blade, #94D6FC);
+      border-radius: 50%;
+      box-sizing: border-box
+    }
+
+    .craft.twin .twin-prop::before {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: -2px;
+      width: 1px;
+      height: 15px;
+      margin-left: -.5px;
+      background: var(--fly-blade, #94D6FC);
+      animation: cw 90ms linear infinite
+    }
+
+    .craft.twin .twin-prop-l {
+      left: -2px
+    }
+
+    .craft.twin .twin-prop-r {
+      left: 31px
+    }
+
+    .craft.twin .twin-fin {
+      position: absolute;
+      left: 19px;
+      top: 29px;
+      width: 4px;
+      height: 7px;
+      background: var(--fly-dot, #1F91DD)
+    }
+
+    .craft.twin .twin-stab {
+      position: absolute;
+      left: 9px;
+      top: 31px;
+      width: 24px;
+      height: 3px;
+      border-radius: 2px;
+      background: var(--fly-ring, #529BF8)
+    }
+
+    .craft.twin .twin-lamp {
+      left: 19px;
+      top: 20px
+    }
+
+    /* —— 喷气战斗机：后掠翼 + 座舱 + 尾喷口 + 尾焰 —— */
+    .craft.jet .jet-fus {
+      position: absolute;
+      left: 16px;
+      top: 6px;
+      width: 10px;
+      height: 32px;
+      border-radius: 5px 5px 2px 2px;
+      background: linear-gradient(90deg, var(--fly-dot, #1F91DD), var(--fly-bar, #5EC2FC))
+    }
+
+    .craft.jet .jet-wing {
+      position: absolute;
+      left: 1px;
+      top: 15px;
+      width: 40px;
+      height: 15px;
+      background: var(--fly-ring, #529BF8);
+      clip-path: polygon(50% 0, 100% 100%, 0 100%)
+    }
+
+    .craft.jet .jet-stab {
+      position: absolute;
+      left: 10px;
+      top: 29px;
+      width: 22px;
+      height: 5px;
+      background: var(--fly-ring, #529BF8);
+      clip-path: polygon(50% 0, 100% 100%, 0 100%)
+    }
+
+    .craft.jet .jet-fin {
+      position: absolute;
+      left: 19px;
+      top: 27px;
+      width: 4px;
+      height: 8px;
+      background: var(--fly-dot, #1F91DD)
+    }
+
+    .craft.jet .jet-cockpit {
+      position: absolute;
+      left: 17px;
+      top: 9px;
+      width: 8px;
+      height: 6px;
+      border-radius: 4px 4px 2px 2px;
+      background: #23324a
+    }
+
+    .craft.jet .jet-nozzle {
+      position: absolute;
+      left: 17px;
+      top: 35px;
+      width: 8px;
+      height: 4px;
+      border-radius: 2px;
+      background: #23324a
+    }
+
+    .craft.jet .jet-flame {
+      position: absolute;
+      left: 18px;
+      top: 38px;
+      width: 6px;
+      height: 11px;
+      border-radius: 50%;
+      background: linear-gradient(var(--fly-blade, #94D6FC), transparent);
+      opacity: .85;
+      animation: burn 90ms linear infinite alternate
+    }
+
+    .craft.jet .jet-lamp {
+      left: 19px;
+      top: 30px
+    }
+
+    @keyframes burn {
+      from {
+        transform: scaleY(.65);
+        opacity: .55
+      }
+
+      to {
+        transform: scaleY(1.25);
+        opacity: .95
+      }
+    }
+
+    /* —— 客机：长机身 + 后掠大翼 + 双发引擎 + 涂装带 —— */
+    .craft.airliner .al-fus {
+      position: absolute;
+      left: 15px;
+      top: 4px;
+      width: 12px;
+      height: 36px;
+      border-radius: 6px;
+      background: linear-gradient(90deg, var(--fly-dot, #1F91DD), var(--fly-bar, #5EC2FC))
+    }
+
+    .craft.airliner .al-fus::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 3px;
+      width: 2px;
+      height: 30px;
+      margin-left: -1px;
+      background: var(--fly-blade, #94D6FC);
+      opacity: .75
+    }
+
+    .craft.airliner .al-wing {
+      position: absolute;
+      left: 0;
+      top: 17px;
+      width: 42px;
+      height: 13px;
+      background: var(--fly-ring, #529BF8);
+      clip-path: polygon(50% 0, 100% 100%, 0 100%)
+    }
+
+    .craft.airliner .al-stab {
+      position: absolute;
+      left: 7px;
+      top: 31px;
+      width: 28px;
+      height: 7px;
+      background: var(--fly-ring, #529BF8);
+      clip-path: polygon(50% 0, 100% 100%, 0 100%)
+    }
+
+    .craft.airliner .al-fin {
+      position: absolute;
+      left: 19px;
+      top: 30px;
+      width: 4px;
+      height: 9px;
+      background: var(--fly-dot, #1F91DD)
+    }
+
+    .craft.airliner .al-eng {
+      position: absolute;
+      top: 23px;
+      width: 9px;
+      height: 5px;
+      border-radius: 2px;
+      background: #23324a
+    }
+
+    .craft.airliner .al-eng-l {
+      left: 5px
+    }
+
+    .craft.airliner .al-eng-r {
+      left: 28px
+    }
+
+    .craft.airliner .al-lamp {
+      left: 19px;
+      top: 13px
+    }
+
+    /* —— 预警机：机身 + 顶部旋转雷达盘 —— */
+    .craft.awacs .aw-fus {
+      position: absolute;
+      left: 14px;
+      top: 6px;
+      width: 14px;
+      height: 32px;
+      border-radius: 7px;
+      background: linear-gradient(90deg, var(--fly-dot, #1F91DD), var(--fly-bar, #5EC2FC))
+    }
+
+    .craft.awacs .aw-wing {
+      position: absolute;
+      left: 1px;
+      top: 19px;
+      width: 40px;
+      height: 12px;
+      background: var(--fly-ring, #529BF8);
+      clip-path: polygon(50% 0, 100% 100%, 0 100%)
+    }
+
+    .craft.awacs .aw-stab {
+      position: absolute;
+      left: 7px;
+      top: 31px;
+      width: 28px;
+      height: 6px;
+      background: var(--fly-ring, #529BF8)
+    }
+
+    .craft.awacs .aw-fin {
+      position: absolute;
+      left: 19px;
+      top: 30px;
+      width: 4px;
+      height: 8px;
+      background: var(--fly-dot, #1F91DD)
+    }
+
+    .craft.awacs .aw-eng {
+      position: absolute;
+      top: 24px;
+      width: 8px;
+      height: 5px;
+      border-radius: 2px;
+      background: #23324a
+    }
+
+    .craft.awacs .aw-eng-l {
+      left: 4px
+    }
+
+    .craft.awacs .aw-eng-r {
+      left: 30px
+    }
+
+    .craft.awacs .aw-dish {
+      position: absolute;
+      left: 6px;
+      top: 12px;
+      width: 30px;
+      height: 28px;
+      border: 2px solid var(--fly-blade, #94D6FC);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, .18)
+    }
+
+    .craft.awacs .aw-scan {
+      position: absolute;
+      left: 50%;
+      top: 1px;
+      width: 2px;
+      height: 24px;
+      margin-left: -1px;
+      border-radius: 1px;
+      background: var(--fly-blade, #94D6FC);
+      animation: cw 2.6s linear infinite
+    }
+
+    .craft.awacs .aw-lamp {
+      left: 19px;
+      top: 28px
+    }
+
+    /* —— 空天母舰：巨大舰体 + 甲板 + 舰桥 + 尾部推进器 —— */
+    .craft.mothership .ms-hull {
+      position: absolute;
+      left: 8px;
+      top: -4px;
+      width: 26px;
+      height: 50px;
+      background: linear-gradient(90deg, var(--fly-dot, #1F91DD), var(--fly-bar, #5EC2FC));
+      clip-path: polygon(50% 0, 100% 16%, 100% 88%, 50% 100%, 0 88%, 0 16%);
+      box-sizing: border-box
+    }
+
+    /* 甲板：舰体上的深色起降区，虚线边框 + 中线标记 */
+    .craft.mothership .ms-deck {
+      position: absolute;
+      left: 11px;
+      top: 10px;
+      width: 20px;
+      height: 30px;
+      border-radius: 4px;
+      border: 1px dashed var(--fly-blade, #94D6FC);
+      background: rgba(0, 0, 0, .14)
+    }
+
+    .craft.mothership .ms-deck::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 5px;
+      width: 2px;
+      height: 20px;
+      margin-left: -1px;
+      background: var(--fly-blade, #94D6FC);
+      opacity: .8
+    }
+
+    .craft.mothership .ms-bridge {
+      position: absolute;
+      left: 24px;
+      top: 8px;
+      width: 11px;
+      height: 11px;
+      border-radius: 3px;
+      background: var(--fly-ring, #529BF8)
+    }
+
+    .craft.mothership .ms-thr {
+      position: absolute;
+      left: 11px;
+      top: 40px;
+      width: 20px;
+      height: 8px;
+      border-radius: 3px;
+      background: repeating-linear-gradient(90deg, #23324a 0 3px, transparent 3px 6px)
+    }
+
+    .craft.mothership .ms-flame {
+      position: absolute;
+      left: 14px;
+      top: 47px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--fly-blade, #94D6FC), transparent 70%);
+      opacity: .8;
+      animation: burn 160ms linear infinite alternate
+    }
+
+    .craft.mothership .ms-lamp {
+      left: 19px;
+      top: 6px
+    }
+
+    /* —— 卫星：方形本体 + 两侧太阳能电池板 + 天线 —— */
+    .craft.satellite .sat-body {
+      position: absolute;
+      left: 13px;
+      top: 10px;
+      width: 16px;
+      height: 22px;
+      border-radius: 3px;
+      background: linear-gradient(180deg, var(--fly-bar, #5EC2FC), var(--fly-dot, #1F91DD));
+      box-shadow: inset 0 0 0 1px var(--fly-blade, #94D6FC);
+      box-sizing: border-box
+    }
+
+    /* 本体上的仪器面：两条横带，让方块不至于太素 */
+    .craft.satellite .sat-body::after {
+      content: '';
+      position: absolute;
+      left: 2px;
+      top: 7px;
+      width: 12px;
+      height: 8px;
+      border-radius: 1px;
+      background: var(--fly-blade, #94D6FC);
+      opacity: .55
+    }
+
+    .craft.satellite .sat-panel {
+      position: absolute;
+      top: 14px;
+      width: 20px;
+      height: 14px;
+      border: 1px solid var(--fly-ring, #529BF8);
+      background: repeating-linear-gradient(90deg, var(--fly-dot, #1F91DD) 0 4px, transparent 4px 8px);
+      opacity: .85
+    }
+
+    .craft.satellite .sat-panel-l {
+      left: -8px
+    }
+
+    .craft.satellite .sat-panel-r {
+      left: 30px
+    }
+
+    .craft.satellite .sat-ant {
+      position: absolute;
+      left: 19px;
+      top: 5px;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--fly-blade, #94D6FC);
+      box-shadow: 0 0 4px var(--fly-blade, #94D6FC)
+    }
+
+    .craft.satellite .sat-lamp {
+      left: 19px;
+      top: 20px
+    }
+
+    /* —— 陆地兵种：坦克（俯视：左右履带 + 车体 + 会转的炮塔） —— */
+    .craft.tank .tank-track {
+      position: absolute;
+      top: 1px;
+      width: 5px;
+      height: 40px;
+      border-radius: 2px;
+      background: repeating-linear-gradient(180deg, #23324a 0 4px, transparent 4px 7px)
+    }
+
+    .craft.tank .tank-track-l {
+      left: 4px
+    }
+
+    .craft.tank .tank-track-r {
+      left: 33px
+    }
+
+    .craft.tank .tank-body {
+      position: absolute;
+      left: 9px;
+      top: 5px;
+      width: 24px;
+      height: 32px;
+      border-radius: 4px 4px 6px 6px;
+      background: linear-gradient(180deg, var(--fly-bar, #5EC2FC), var(--fly-dot, #1F91DD))
+    }
+
+    /* 炮塔层：整层绕车体中心摆动，炮管与炮塔圆顶都装在里面一起转。
+       角度由 JS 逐帧写入（sweepTurret），射击方向要跟它走 */
+    .craft.tank .tank-turret {
+      position: absolute;
+      inset: 0;
+      transform-origin: 21px 21px
+    }
+
+    .craft.tank .tank-dome {
+      position: absolute;
+      left: 15px;
+      top: 15px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--fly-ring, #529BF8);
+      box-shadow: inset 0 0 0 2px var(--fly-blade, #94D6FC)
+    }
+
+    .craft.tank .tank-lamp {
+      left: 28px;
+      top: 20px
+    }
+
+    /* 空天母舰的斜向副炮：绕机身中心旋转 ±42°，长度与正炮一致，
+       保证弹丸出膛点正好落在炮口尖端 */
+    .craft.mothership .ms-gun {
+      position: absolute;
+      left: 20px;
+      top: -4px;
+      width: 2px;
+      height: 25px;
+      border-radius: 1px;
+      background: linear-gradient(to top, var(--fly-dot, #1F91DD), var(--fly-blade, #94D6FC));
+      transform-origin: 1px 25px;
+      transform: rotate(42deg)
+    }
+
+    .craft.mothership .ms-gun-r {
+      transform: rotate(-42deg)
+    }
+
+    /* 各机型枪管长度：枪口顶端必须落在 TYPES 里对应的 gun 距离上（21 - top）。
+       全部机型都显式声明，四轴的值与 .barrel 默认值相同 */
+    .craft.drone .barrel {
+      top: -4px;
+      height: 25px
+    }
+
+    .craft.heli .barrel {
+      top: 4px;
+      height: 22px
+    }
+
+    .craft.twin .barrel {
+      top: 2px;
+      height: 20px
+    }
+
+    .craft.jet .barrel {
+      top: -6px;
+      height: 26px
+    }
+
+    .craft.airliner .barrel {
+      top: -8px;
+      height: 26px
+    }
+
+    .craft.awacs .barrel {
+      top: 0px;
+      height: 22px
+    }
+
+    .craft.mothership .barrel {
+      top: -14px;
+      height: 30px
+    }
+
+    .craft.satellite .barrel {
+      top: 6px;
+      height: 18px
+    }
+
+    .craft.tank .barrel {
+      top: -4px;
+      height: 25px
+    }
+  </style>
+</head>
+
+<body>
+
+  <script>
+    /************************
+    * Copyright (c) 2014
+    * 功能：自由飞行的四轴飞行器
+    * 作者：Malu
+    * 版本：v0.1.2
+    * Mail: malu#malu.me
+    * Site: http://cdn.malu.me/4axis/
+    ************************/
+    (function () {
+      'use strict';
+
+      var FLY_COUNT = 1;     // 飞行器数量
+      var SIZE = 42;         // 飞行器基准尺寸(px)，须与 .fly 的宽高一致
+      var SIZE_JITTER = 10;  // 飞行器尺寸随机浮动(px)
+      var MARGIN = 32;       // 飞行范围距窗口边缘的留白(px)
+      var TILT = 8;          // 机身摆尾幅度(度)
+      var MUZZLE = 25;       // 四轴的枪口距离(px)，须与 .barrel 的位置一致；各机型枪口见 TYPES
+      var HIT_RADIUS = 21;   // 命中判定半径(px)，再乘机身尺寸系数
+      var BULLET_SPEED = 1.15; // 子弹速度(px/ms)
+      var MISSILE_SPEED = .5;  // 导弹速度(px/ms)
+      var MISSILE_RATE = .35;  // 发射导弹的概率，其余为子弹
+      var SHOT_GAP = 140;      // 连发间隔(ms)
+      var TURRET_SWING = 70;   // 坦克炮塔摆动幅度(度)
+      var TURRET_PERIOD = 7000;// 坦克炮塔一个来回的周期(ms)
+      var FALL_MIN = 900;      // 被击中后坠出屏幕所需时间下限(ms)
+      var FALL_MAX = 1500;     // 上限
+      var HUE_RED = 0;         // 左上象限
+      var HUE_YELLOW = 45;     // 右上象限
+      var HUE_GREEN = 135;     // 左下象限
+      var HUE_BLUE = 214;      // 右下象限（原版的蓝）
+
+      // 阵营 → 色相。阵营就等于色相：色相相同即同一方，同方之间不互相击落。
+      // 传 'red' / 'yellow' / 'green' / 'blue' 走田字四色；不传（creatFly 直接调用）
+      // 则每架各抽一个随机色相，相当于各自为战。
+      function factionHue(faction) {
+        if (faction === 'red') return HUE_RED;
+        if (faction === 'yellow') return HUE_YELLOW;
+        if (faction === 'green') return HUE_GREEN;
+        if (faction === 'blue') return HUE_BLUE;
+        return rand(0, 359);
+      }
+
+      // 落点所在象限 → 阵营。页面按田字分四色：上排暖（红/黄）、下排冷（绿/蓝），
+      // 同一侧上下再各分一色，四色互不接近
+      function quadrantFaction(cx, cy) {
+        var right = cx >= maxX / 2;
+        if (cy < maxY / 2) return right ? 'yellow' : 'red';
+        return right ? 'blue' : 'green';
+      }
+
+      // 随机整数，min > max 时返回 0
+      function rand(min, max) {
+        return min > max ? 0 : Math.round(Math.random() * (max - min) + min);
+      }
+
+      // 四个旋翼：1、4 顺时针，2、3 逆时针
+      var ROTORS = [
+        {cls: 's', dir: 'xz_s'},
+        {cls: 's s_2', dir: 'xz_n'},
+        {cls: 's s_3', dir: 'xz_n'},
+        {cls: 's s_4', dir: 'xz_s'}
+      ];
+
+      // 枪管：唯一的方向标识，挂在旋翼之后、机身之前，由机身中心向前伸出
+      var BARREL = '<div class="barrel"></div>';
+
+      var BODY = '<div class="core"></div><div class="d d_1"></div>' +
+        '<div class="d d_2"></div><div class="d d_3"></div>' +
+        '<div class="d d_4"></div><div class="d d_5"></div>';
+
+      function rotorHtml(rotor) {
+        return '<div class="' + rotor.cls + '">' +
+          '<div class="arm"></div>' +
+          '<div class="yp ' + rotor.dir + ' i_1"></div>' +
+          '<div class="yp ' + rotor.dir + ' i_2"></div>' +
+          '<div class="gz ' + rotor.dir + '"></div>' +
+          '</div>';
+      }
+
+      // ===== 机型库：8 种俯视造型，创建时随机取一种 ==================
+      //   key   机型标识，同时作为 .craft 的附加类，CSS 靠它区分造型
+      //   size  尺寸倍率（再乘原有的 ±10px 随机浮动）
+      //   hit   命中半径系数，按机身视觉大小给：母舰宽所以系数大、卫星小所以系数小
+      //   gun   枪口到机身中心的距离(px)，必须等于 21 - 该机型 .barrel 的 top
+      var TYPES = [
+        {
+          key: 'drone',
+          label: '四轴旋翼',
+          size: 1,
+          hit: 1,
+          gun: MUZZLE,
+          html: function () {
+            return ROTORS.map(rotorHtml).join('') + BARREL + BODY;
+          }
+        },
+        {
+          key: 'heli',
+          label: '单旋翼直升机',
+          size: 1.1,
+          hit: 1.1,
+          gun: 17,
+          html: function () {
+            return BARREL + '<div class="heli-fus"></div><div class="heli-boom"></div>' +
+              '<div class="heli-fin"></div><div class="heli-lamp"></div>' +
+              '<div class="heli-rotor"><i></i><i></i><i></i><i></i></div>';
+          }
+        },
+        {
+          key: 'twin',
+          label: '双桨螺旋桨机',
+          size: 1.15,
+          hit: 1,
+          gun: 19,
+          html: function () {
+            return BARREL + '<div class="twin-fus"></div><div class="twin-wing"></div>' +
+              '<div class="twin-prop twin-prop-l"></div>' +
+              '<div class="twin-prop twin-prop-r"></div>' +
+              '<div class="twin-fin"></div><div class="twin-stab"></div>' +
+              '<div class="twin-lamp"></div>';
+          }
+        },
+        {
+          key: 'jet',
+          label: '喷气战斗机',
+          size: 1.05,
+          hit: 1,
+          gun: 27,
+          html: function () {
+            return BARREL + '<div class="jet-wing"></div><div class="jet-fus"></div>' +
+              '<div class="jet-cockpit"></div><div class="jet-fin"></div>' +
+              '<div class="jet-stab"></div><div class="jet-nozzle"></div>' +
+              '<div class="jet-flame"></div><div class="jet-lamp"></div>';
+          }
+        },
+        {
+          key: 'airliner',
+          label: '客机',
+          size: 1.7,
+          hit: 1.15,
+          gun: 29,
+          html: function () {
+            return BARREL + '<div class="al-wing"></div><div class="al-fus"></div>' +
+              '<div class="al-fin"></div><div class="al-stab"></div>' +
+              '<div class="al-eng al-eng-l"></div><div class="al-eng al-eng-r"></div>' +
+              '<div class="al-lamp"></div>';
+          }
+        },
+        {
+          key: 'awacs',
+          label: '预警机',
+          size: 1.75,
+          hit: 1.05,
+          gun: 21,
+          html: function () {
+            return BARREL + '<div class="aw-wing"></div><div class="aw-fus"></div>' +
+              '<div class="aw-fin"></div><div class="aw-stab"></div>' +
+              '<div class="aw-eng aw-eng-l"></div><div class="aw-eng aw-eng-r"></div>' +
+              '<div class="aw-dish"><div class="aw-scan"></div></div>' +
+              '<div class="aw-lamp"></div>';
+          }
+        },
+        {
+          key: 'mothership',
+          label: '空天母舰',
+          size: 2.5,
+          hit: 1.3,
+          gun: 35,
+          ports: [0, 42, -42],      // 正前方 + 左右各 42° 的斜向副炮
+          html: function () {
+            return BARREL +
+              '<div class="ms-gun"></div><div class="ms-gun ms-gun-r"></div>' +
+              '<div class="ms-hull"></div><div class="ms-deck"></div>' +
+              '<div class="ms-bridge"></div><div class="ms-thr"></div>' +
+              '<div class="ms-flame"></div><div class="ms-lamp"></div>';
+          }
+        },
+        {
+          key: 'tank',
+          label: '坦克',
+          size: 1.1,
+          hit: 1,
+          gun: 25,
+          ground: true,             // 陆地兵种：全页行驶，被击中原地炸毁
+          html: function () {
+            return '<div class="tank-track tank-track-l"></div>' +
+              '<div class="tank-track tank-track-r"></div>' +
+              '<div class="tank-body"></div>' +
+              '<div class="tank-turret">' + BARREL + '<div class="tank-dome"></div></div>' +
+              '<div class="tank-lamp"></div>';
+          }
+        },
+        {
+          key: 'satellite',
+          label: '卫星',
+          size: .9,
+          hit: .75,
+          gun: 15,
+          orbit: true,              // 卫星：切四边飞入后绕圆心盘旋，炮口始终向内
+          html: function () {
+            return BARREL + '<div class="sat-panel sat-panel-l"></div>' +
+              '<div class="sat-panel sat-panel-r"></div><div class="sat-body"></div>' +
+              '<div class="sat-ant"></div><div class="sat-lamp"></div>';
+          }
+        }
+      ];
+
+      // 机身摆尾：幅度 ±TILT，首尾角度相同，保证循环无跳变
+      // 机头朝向由 .craft 的 transform 负责，这里只做小幅摆动；原来那种 0~360° 乱转会把机头转得认不出来
+      function spinKeyframes(name) {
+        function frame(deg) {
+          return '{transform:rotate(' + deg + 'deg)}';
+        }
+        var start = rand(-TILT, TILT);
+        var css = '@keyframes ' + name + '{0%' + frame(start);
+        for (var j = 20; j < 100; j += 20) {
+          css += j + '%' + frame(rand(-TILT, TILT));
+        }
+        return css + '100%' + frame(start) + '}';
+      }
+
+      // 机头方向 = 前进方向。rotate(0) 时机头朝上，故由 atan2(dx, -dy) 求角
+      function headingTo(fromX, fromY, toX, toY) {
+        return Math.atan2(toX - fromX, fromY - toY) * 180 / Math.PI;
+      }
+
+      // 写入朝向：折到与上一角度相差 180° 以内，让过渡走最短路径而不是绕一大圈
+      function turn(el, deg) {
+        var prev = parseFloat(el.dataset.heading || 0);
+        while (deg - prev > 180) {
+          deg -= 360;
+        }
+        while (deg - prev < -180) {
+          deg += 360;
+        }
+        el.dataset.heading = deg;
+        el.querySelector('.craft').style.transform =
+          'rotate(' + deg + 'deg) scale(' + el.dataset.scale + ')';
+      }
+
+      // 实际朝向 = 机头朝向 + 摆尾动画当前角度（出膛方向要和机头对齐）
+      function craftAngle(el) {
+        var deg = parseFloat(el.dataset.heading || 0);
+        var t = getComputedStyle(el).transform;
+        if (t && t !== 'none') {
+          try {
+            var m = new DOMMatrixReadOnly(t);
+            deg += Math.atan2(m.b, m.a) * 180 / Math.PI;
+          } catch (e) {
+            // 环境不支持 DOMMatrixReadOnly 时退回纯朝向
+          }
+        }
+        return deg;
+      }
+
+      // ===== 存活飞行器：被击中后即移出此表，飞行与开火循环随之停摆 =====
+      var alive = [];
+
+      function isAlive(el) {
+        return alive.indexOf(el) >= 0;
+      }
+
+      // ===== 弹丸：全局只跑一个动画循环，逐帧推进并做命中、出界判定 =====
+      var projectiles = [];
+      var rafId = 0;
+
+      function loop(now) {
+        var dt = loop.last ? Math.min(now - loop.last, 50) : 16;
+        loop.last = now;
+
+        // 每帧只查一次布局，缓存各存活机身的位置与命中半径
+        var targets = null;
+        if (alive.length) {
+          targets = [];
+          for (var k = 0; k < alive.length; k++) {
+            var t = alive[k];
+            var r = t.getBoundingClientRect();
+            targets.push({
+              el: t,
+              x: r.left + r.width / 2,
+              y: r.top + r.height / 2,
+              r: HIT_RADIUS * parseFloat(t.dataset.scale) * parseFloat(t.dataset.hit)
+            });
+          }
+        }
+
+        for (var i = projectiles.length - 1; i >= 0; i--) {
+          var p = projectiles[i];
+          p.x += p.dx * p.speed * dt;
+          p.y += p.dy * p.speed * dt;
+          p.el.style.transform = 'translate(' + p.x.toFixed(1) + 'px,' + p.y.toFixed(1) +
+            'px) rotate(' + p.deg.toFixed(1) + 'deg)';
+
+          // 命中其他飞行器
+          var victim = null;
+          if (targets) {
+            for (var m = 0; m < targets.length; m++) {
+              var g = targets[m];
+              if (g.el === p.owner) continue;   // 不打自己
+              if (g.el.dataset.faction === p.faction) continue;   // 同色相 = 同一方，不击落，弹丸直接穿过去
+              var gx = p.x - g.x;
+              var gy = p.y - g.y;
+              if (gx * gx + gy * gy <= g.r * g.r) {
+                victim = g.el;
+                break;
+              }
+            }
+          }
+          if (victim && crash(victim)) {
+            p.el.remove();
+            projectiles.splice(i, 1);
+            continue;
+          }
+
+          // 一直飞到视口之外才回收
+          if (p.x < -40 || p.x > maxX + 40 || p.y < -40 || p.y > maxY + 40) {
+            p.el.remove();
+            projectiles.splice(i, 1);
+          }
+        }
+
+        rafId = projectiles.length ? requestAnimationFrame(loop) : 0;
+      }
+
+      // 有弹丸在飞才驱动循环，全部回收后自动停摆
+      function ensureLoop() {
+        if (!rafId) {
+          loop.last = 0;
+          rafId = requestAnimationFrame(loop);
+        }
+      }
+
+      // 开火：从各炮口沿机头朝向 + 炮口偏移射出子弹或导弹，颜色取自本机配色。
+      // 一般机型只有正前方一门；空天母舰有三门（正前方 + 左右各 42°）
+      function shoot(el) {
+        if (!isAlive(el)) return;
+
+        var base = craftAngle(el);
+        // 坦克：炮塔相对车体在摆，弹丸方向 = 车体朝向 + 炮塔当前角（跟炮管走）
+        if (el.dataset.type === 'tank') {
+          base += parseFloat(el.dataset.turretDeg || 0);
+        }
+        var rect = el.getBoundingClientRect();
+        var reach = parseFloat(el.dataset.gun) * parseFloat(el.dataset.scale);
+        var cx = rect.left + rect.width / 2;
+        var cy = rect.top + rect.height / 2;
+        var ports = (el.dataset.guns || '0').split(',');
+
+        for (var i = 0; i < ports.length; i++) {
+          var deg = base + parseFloat(ports[i]);
+          var rad = deg * Math.PI / 180;
+          var x = cx + Math.sin(rad) * reach;
+          var y = cy - Math.cos(rad) * reach;
+
+          var missile = Math.random() < MISSILE_RATE;
+          var bolt = document.createElement('div');
+
+          bolt.className = 'bolt ' + (missile ? 'missile' : 'bullet');
+          bolt.style.setProperty('--shot', missile ?
+            'hsl(' + el.dataset.hue + ', 92%, 65%)' :
+            'hsl(' + el.dataset.hue + ', 95%, 78%)');
+          bolt.style.transform = 'translate(' + x + 'px,' + y + 'px) rotate(' + deg + 'deg)';
+          document.body.appendChild(bolt);
+
+          projectiles.push({
+            el: bolt,
+            owner: el,
+            faction: el.dataset.faction,   // 命中判定用：与目标色相相同即同一方，不判命中
+            x: x,
+            y: y,
+            dx: Math.sin(rad),
+            dy: -Math.cos(rad),
+            deg: deg,
+            speed: missile ? MISSILE_SPEED : BULLET_SPEED
+          });
+        }
+
+        // 炮口闪光
+        var barrel = el.querySelector('.barrel');
+        barrel.classList.add('flash');
+        setTimeout(function () {barrel.classList.remove('flash');}, 100);
+
+        ensureLoop();
+      }
+
+      // 击毁爆炸：在消失位置炸一下再清理，纯视觉反馈
+      function boom(x, y) {
+        var b = document.createElement('div');
+        b.className = 'boom';
+        b.style.left = x + 'px';
+        b.style.top = y + 'px';
+        document.body.appendChild(b);
+        setTimeout(function () {b.remove();}, 700);
+      }
+
+      // 被击中：陆地单位原地炸毁；空中单位停飞停火，垂直坠出屏幕后销毁元素
+      function crash(el) {
+        if (!isAlive(el)) return false;
+        alive.splice(alive.indexOf(el), 1);
+
+        clearTimeout(el._flyTimer);
+        clearTimeout(el._fireTimer);
+
+        // 地面兵种没有"坠落"这回事：原地炸掉即可
+        if (el.dataset.ground) {
+          var gr = el.getBoundingClientRect();
+          boom(gr.left + gr.width / 2, gr.top + gr.height / 2);
+          el.remove();
+          return true;
+        }
+
+        // 冻结当前位置：飞行中的 left/opacity 是"过渡中间值"，而 inline 值指向本段航线终点。
+        // 下一行换成只含 top 的新过渡后，left 失去过渡规则会瞬间跳到 inline 终点——
+        // 看起来就像瞬移到别处才坠落。先把计算值钉回 inline，跳变即消失。
+        var cs = getComputedStyle(el);
+        el.style.left = cs.left;
+        el.style.opacity = cs.opacity;
+
+        var dur = rand(FALL_MIN, FALL_MAX);
+        el.style.transition = 'top ' + dur + 'ms cubic-bezier(.45,0,.9,.6)';
+        el.style.top = (maxY + 200) + 'px';
+
+        // 记录坠落起点，触底消失时在屏幕底边炸一下
+        var rect = el.getBoundingClientRect();
+        setTimeout(function () {
+          boom(rect.left + rect.width / 2, maxY - 8);
+          el.remove();
+        }, dur + 60);
+        return true;
+      }
+
+      // 随机开火：每次 1~3 连发，隔 2.5~7 秒再来一轮
+      function openFire(el) {
+        function volley() {
+          if (!isAlive(el)) return;
+          var shots = rand(1, 3);
+          for (var i = 0; i < shots; i++) {
+            setTimeout(function () {shoot(el);}, i * SHOT_GAP);
+          }
+          el._fireTimer = setTimeout(volley, rand(2500, 7000));
+        }
+        el._fireTimer = setTimeout(volley, rand(1500, 4000));
+      }
+
+      var flyerSeq = 0;   // 飞行器全局序号：多次调用 creatFly 时类名与关键帧不冲突
+
+      // 取机型：指定了 key 就用它（控制台可点名要某型），否则随机
+      function pickType(key) {
+        if (key) {
+          for (var i = 0; i < TYPES.length; i++) {
+            if (TYPES[i].key === key) return TYPES[i];
+          }
+        }
+        return TYPES[rand(0, TYPES.length - 1)];
+      }
+
+      // 建立飞行器，返回本次新建的元素。
+      // faction 传 'red' / 'blue' 走固定阵营；不传则每架各抽一个随机色相（各自为战）
+      // typeKey 传机型标识则全部用该机型；不传则逐架随机
+      function createFlyers(count, faction, typeKey) {
+        var css = '';
+        var fragment = document.createDocumentFragment();
+        var created = [];
+
+        for (var i = 0; i < count; i++) {
+          var seq = flyerSeq++;
+          var name = 'move' + seq;
+          var type = pickType(typeKey);   // 机型：指定或随机
+          var fly = document.createElement('div');
+          fly.className = name + ' fly';
+
+          // 机身、旋翼、枪管都装在 .craft 里：
+          // 机头朝向写在 .craft 上，摆尾写在 .fly 上，两层互不干扰
+          var craft = document.createElement('div');
+          craft.className = 'craft ' + type.key;
+          craft.innerHTML = type.html();
+          fly.appendChild(craft);
+
+          // 阵营配色：色相即阵营。固定阵营取固定色相，未指定则每架各抽一个随机色相；
+          // 四层明度沿用原配色比例
+          var hue = factionHue(faction);
+          fly.dataset.hue = hue;
+          fly.dataset.faction = hue;   // 命中判定直接比这个值，色相同即同一方
+
+          // 机型参数：命中半径系数、枪口距离、炮口组、是否陆地单位
+          var ports = type.ports || [0];
+          fly.dataset.type = type.key;
+          fly.dataset.hit = type.hit;
+          fly.dataset.gun = type.gun;
+          fly.dataset.guns = ports.join(',');   // 炮口相对机头的角度偏移
+          if (type.ground) fly.dataset.ground = '1';
+          if (type.orbit) fly.dataset.orbit = '1';
+          fly.style.setProperty('--fly-ring', 'hsl(' + hue + ', 92%, 65%)');
+          fly.style.setProperty('--fly-blade', 'hsl(' + hue + ', 95%, 78%)');
+          fly.style.setProperty('--fly-bar', 'hsl(' + hue + ', 96%, 68%)');
+          fly.style.setProperty('--fly-dot', 'hsl(' + hue + ', 75%, 49%)');
+
+          // 随机尺寸：机型基准倍率 × (±10px) 浮动
+          var px = rand(SIZE - SIZE_JITTER, SIZE + SIZE_JITTER);
+          var scale = Math.round((px / SIZE) * type.size * 100) / 100;
+          fly.dataset.scale = scale;
+          fly.dataset.heading = 0;
+          craft.style.transform = 'rotate(0deg) scale(' + scale + ')';
+
+          // 初始位置都在屏幕外：卫星从 上/左/右/下 四边切入轨道，
+          // 陆地单位从左右驶入（俯视图上高度随机），其余空中单位从三面飞入
+          if (type.orbit) {
+            var side = rand(0, 3);
+            fly.dataset.entry = side;
+            if (side === 0) {                                   // 上方
+              fly.style.left = rand(-1440, 1440) + 'px';
+              fly.style.top = '-50px';
+            } else if (side === 1) {                            // 左侧
+              fly.style.left = '-50px';
+              fly.style.top = rand(0, Math.max(0, maxY - SIZE)) + 'px';
+            } else if (side === 2) {                            // 右侧
+              fly.style.left = (maxX + 50) + 'px';
+              fly.style.top = rand(0, Math.max(0, maxY - SIZE)) + 'px';
+            } else {                                            // 下方
+              fly.style.left = rand(-1440, 1440) + 'px';
+              fly.style.top = (maxY + 50) + 'px';
+            }
+          } else if (type.ground) {
+            fly.style.left = (rand(0, 1) ? -SIZE : maxX + SIZE) + 'px';
+            fly.style.top = rand(0, Math.max(0, maxY - SIZE)) + 'px';
+          } else {
+            var side = rand(0, 2);
+            fly.dataset.entry = side;
+            if (side === 0) {                                   // 上方
+              fly.style.left = rand(-1440, 1440) + 'px';
+              fly.style.top = '-50px';
+            } else if (side === 1) {                            // 左侧
+              fly.style.left = '-50px';
+              fly.style.top = rand(0, Math.max(0, maxY - SIZE)) + 'px';
+            } else {                                            // 右侧
+              fly.style.left = (maxX + 50) + 'px';
+              fly.style.top = rand(0, Math.max(0, maxY - SIZE)) + 'px';
+            }
+          }
+
+          // 书写层：后来者盖住先来者，但压在弹丸/涟漪之下，保持弹道清晰
+          fly.style.zIndex = 900 + seq % 80;
+
+          // 摆尾动画
+          css += '.' + name + '{animation:' + name + ' 6000ms ease-in-out infinite}' +
+            spinKeyframes(name);
+
+          created.push(fly);
+          fragment.appendChild(fly);
+        }
+
+        var style = document.createElement('style');
+        style.textContent = css;
+        document.head.appendChild(style);
+        document.body.appendChild(fragment);
+
+        return created;
+      }
+
+      var maxX = 0;
+      var maxY = 0;
+
+      function updateBounds() {
+        maxX = window.innerWidth;
+        maxY = window.innerHeight;
+      }
+
+      // 随机飞行动画：一段飞完立刻开始下一段
+      function fly(el) {
+        if (!isAlive(el)) return;
+
+        var duration = rand(5000, 10000);
+        var toX = rand(MARGIN, maxX - MARGIN);
+        var toY = rand(MARGIN, maxY - MARGIN);
+
+        el.style.transition = 'top ' + duration + 'ms ease-in-out,' +
+          'left ' + duration + 'ms ease-in-out,' +
+          'opacity ' + duration + 'ms ease-in-out';
+        el.style.top = toY + 'px';
+        el.style.left = toX + 'px';
+        el.style.opacity = rand(6, 10) / 10;
+
+        // 机头转向下一段航向：用实时位置求角，飞行途中改向也能立刻掉头
+        var rect = el.getBoundingClientRect();
+        turn(el, headingTo(rect.left + rect.width / 2, rect.top + rect.height / 2,
+          toX + SIZE / 2, toY + SIZE / 2));
+
+        el._flyTimer = setTimeout(function () {fly(el);}, duration);
+      }
+
+      // 陆地单位：整页是俯视图，地面兵种与飞行器一样全页机动——
+      // 在整个视口范围内随机选点行驶，机头朝向行进方向
+      function drive(el) {
+        if (!isAlive(el)) return;
+
+        var duration = rand(6000, 11000);
+        var toX = rand(MARGIN, maxX - MARGIN);
+        var toY = rand(MARGIN, maxY - MARGIN);
+
+        el.style.transition = 'left ' + duration + 'ms linear,' +
+          'top ' + duration + 'ms linear';
+        el.style.left = toX + 'px';
+        el.style.top = toY + 'px';
+
+        var rect = el.getBoundingClientRect();
+        turn(el, headingTo(rect.left + rect.width / 2, rect.top + rect.height / 2,
+          toX + SIZE / 2, toY + SIZE / 2));
+
+        el._flyTimer = setTimeout(function () {drive(el);}, duration);
+      }
+
+      // 坦克炮塔扫描：JS 逐帧把角度写进炮塔层，同时存 dataset.turretDeg——
+      // shoot() 发射时叠加这个角，弹丸方向才跟炮管走而不是车头方向
+      function sweepTurret(el) {
+        if (!isAlive(el)) return;
+
+        var turret = el.querySelector('.tank-turret');
+
+        function step(now) {
+          if (!isAlive(el)) return;   // 被击毁即停摆
+          var deg = TURRET_SWING * Math.sin(now * Math.PI * 2 / TURRET_PERIOD);
+          el.dataset.turretDeg = deg.toFixed(2);
+          turret.style.transform = 'rotate(' + deg.toFixed(2) + 'deg)';
+          el._turretRaf = requestAnimationFrame(step);
+        }
+        el._turretRaf = requestAnimationFrame(step);
+      }
+
+      // ===== 卫星：独立轨迹。先从屏幕外切入圆形轨道，再绕圆心盘旋，=====
+      // 炮口始终指向圆心。位置逐帧由 rAF 推进，不走 CSS 过渡
+      function orbitIn(el) {
+        if (!isAlive(el)) return;
+
+        var cx = maxX / 2 + rand(-40, 40);            // 轨道圆心
+        var cy = maxY / 2 + rand(-40, 40);
+        var r = Math.min(maxX, maxY) * rand(32, 44) / 100;   // 轨道半径：短边的 32%~44%，保证圈够大且不出屏
+        var a = Math.random() * Math.PI * 2;          // 切入点在圆上的角度
+        var dir = Math.random() < .5 ? 1 : -1;        // 顺时针或逆时针
+        var speed = rand(25, 40) / 100000;            // 角速度(rad/ms)，一圈约 16~26 秒
+        var dur = 3600;                               // 切入段时长
+
+        var ex = cx + Math.sin(a) * r - SIZE / 2;
+        var ey = cy - Math.cos(a) * r - SIZE / 2;
+        el._orbit = {cx: cx, cy: cy, r: r};   // 轨道参数留在元素上，resize 时可校正
+        el.style.transition = 'left ' + dur + 'ms ease-in-out,' +
+          'top ' + dur + 'ms ease-in-out,' +
+          'opacity ' + dur + 'ms ease-in-out';
+        el.style.left = ex + 'px';
+        el.style.top = ey + 'px';
+        el.style.opacity = .92;
+
+        var rect = el.getBoundingClientRect();
+        turn(el, headingTo(rect.left + rect.width / 2, rect.top + rect.height / 2,
+          ex + SIZE / 2, ey + SIZE / 2));
+
+        el._flyTimer = setTimeout(function () {
+          orbitRun(el, cx, cy, r, a, dir, speed);
+        }, dur);
+      }
+
+      // 圆周飞行主循环：逐帧推进角度，机头（炮口）指向圆心
+      function orbitRun(el, cx, cy, r, a, dir, speed) {
+        if (!isAlive(el)) return;
+
+        var craft = el.querySelector('.craft');
+        craft.style.transition = 'none';   // 逐帧写朝向，800ms 过渡反而会拖尾
+        var last = 0;
+
+        function step(now) {
+          if (!isAlive(el)) return;   // 被击落后立即停摆，把位置留给 crash()
+          var dt = last ? Math.min(now - last, 50) : 16;
+          last = now;
+          a += dir * speed * dt;
+
+          var x = cx + Math.sin(a) * r - SIZE / 2;
+          var y = cy - Math.cos(a) * r - SIZE / 2;
+          el.style.transition = 'none';
+          el.style.left = x + 'px';
+          el.style.top = y + 'px';
+
+          // 炮口向内：机头从卫星指向圆心
+          var deg = headingTo(x + SIZE / 2, y + SIZE / 2, cx, cy);
+          el.dataset.heading = deg;
+          craft.style.transform =
+            'rotate(' + deg + 'deg) scale(' + el.dataset.scale + ')';
+
+          el._orbitRaf = requestAnimationFrame(step);
+        }
+        el._orbitRaf = requestAnimationFrame(step);
+      }
+
+      updateBounds();
+      window.addEventListener('resize', updateBounds);
+
+      // 开局自动放飞的 FLY_COUNT 架：不指定阵营 → 各自随机色相
+      var flyers = createFlyers(FLY_COUNT);
+
+      // 等浏览器认下屏幕外的初始位置后再起飞，保证第一段是"飞入"而不是瞬移
+      function launch(list) {
+        var started = false;
+        function start() {
+          if (started) return;
+          started = true;
+          for (var i = 0; i < list.length; i++) {
+            alive.push(list[i]);
+            if (list[i].dataset.ground) drive(list[i]);       // 陆地单位全页行驶
+            else if (list[i].dataset.orbit) orbitIn(list[i]); // 卫星切入圆形轨道
+            else fly(list[i]);
+            if (list[i].dataset.type === 'tank') sweepTurret(list[i]);
+            openFire(list[i]);
+          }
+        }
+        requestAnimationFrame(function () {
+          requestAnimationFrame(start);
+        });
+        setTimeout(start, 300);   // 页面不可见时 rAF 不触发，兜底起飞
+      }
+
+      // 放飞指定的飞行器
+      launch(flyers);
+
+      /**
+       * 全局 API：新建并放飞 count 架飞行器
+       * 用法：
+       *   creatFly(10)                 → 10 架随机色相、机型随机
+       *   creatFly(3, 'blue')         → 3 架蓝方
+       *   creatFly(3, 'blue', 'jet')  → 3 架蓝色喷气战斗机
+       * 机型：drone 四轴 / heli 单旋翼直升机 / twin 双桨机 / jet 喷气战斗机
+       *       airliner 客机 / awacs 预警机 / mothership 空天母舰
+       *       tank 坦克（全页行驶）/ satellite 卫星（绕圆心盘旋、炮口向内）
+       * @param {number} count 飞行器数量
+       * @param {string} [faction] 'red' 或 'blue'；不传则每架各抽一个随机色相
+       * @param {string} [typeKey] 机型标识；不传则每架随机
+       * @return {number} 本次新建的飞行器数量
+       */
+      window.creatFly = function (count, faction, typeKey) {
+        var created = createFlyers(count, faction, typeKey);
+        launch(created);
+        return created.length;
+      };
+
+      // 落点涟漪：用该机的色相在落点扩散一圈，作为"已生成"的即时反馈
+      function ripple(x, y, hue) {
+        var r = document.createElement('div');
+        r.className = 'ripple';
+        r.style.setProperty('--spawn', 'hsl(' + hue + ', 92%, 65%)');
+        r.style.left = x + 'px';
+        r.style.top = y + 'px';
+        document.body.appendChild(r);
+        setTimeout(function () {r.remove();}, 460);
+      }
+
+      // 在指定位置生成一架：机身中心落在点击点上，就地起飞（不从屏幕外飞入）
+      // 阵营由落点所在象限决定：左上红 / 右上黄 / 左下绿 / 右下蓝
+      function spawnAt(cx, cy) {
+        var fly = createFlyers(1, quadrantFaction(cx, cy))[0];
+
+        // 覆盖 createFlyers 里"屏幕上方随机水平位置"的初始值。此刻还没发生过样式计算，
+        // 所以这里改坐标不会触发过渡——真正起飞要等 launch 里延后的 fly() 才开始。
+        // 贴近边缘时收进视口，别让飞行器一半露在屏幕外
+        fly.style.left = Math.min(Math.max(cx - SIZE / 2, 0), maxX - SIZE) + 'px';
+        fly.style.top = Math.min(Math.max(cy - SIZE / 2, 0), maxY - SIZE) + 'px';
+
+        ripple(cx, cy, fly.dataset.hue);
+        launch([fly]);   // 沿用起飞流程：延后一帧再飞，保证第一段是"从这里飞走"而不是瞬移
+        return fly;
+      }
+
+      // 鼠标或触控在空白处按下即在落点生成一架：上半屏出红方，下半屏出蓝方。
+      // 点在已有飞行器上不生成，避免误触
+      document.addEventListener('pointerdown', function (e) {
+        if (e.button > 0) return;   // 只响应主键与触摸，右键/中键不管
+        if (e.target.closest && e.target.closest('.fly')) return;   // 空白处才算
+        spawnAt(e.clientX, e.clientY);
+      });
+    })();
+  </script>
+</body>
+
+</html>
