@@ -194,6 +194,7 @@ jobs:
             --endpoint-url "https://$R2_HOST" \
             --content-type "application/vnd.android.package-archive" \
             --content-disposition "attachment; filename=\"$FILENAME\"" \
+            --cache-control "public, max-age=600" \
             --no-progress
 
           echo "已上传 s3://$R2_BUCKET/$R2_KEY"
@@ -239,6 +240,7 @@ jobs:
           ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M") + " (北京时间)"
           fname = os.environ.get("NEW_FILENAME") or "Tasker.Direct.apk"
           sha = (os.environ.get("NEW_SHA") or "")[:12] or "—"
+          ver_tag = (os.environ.get("NEW_SHA") or "")[:8] or str(int(datetime.datetime.now().timestamp()))
 
           p = pathlib.Path(os.environ["HTML_FILE"])
           html = p.read_text(encoding="utf-8")
@@ -248,7 +250,8 @@ jobs:
           html = re.sub(r'(id="sync-time"[^>]*>)[^<]*', lambda m: m.group(1) + ts, html)
           html = re.sub(r'(id="file-hash"[^>]*>)[^<]*', lambda m: m.group(1) + sha, html)
           html = re.sub(r'(id="dlink"[^>]*href=")[^"]*',
-                        lambda m: m.group(1) + os.environ["PUBLIC_BASE"] + "/" + os.environ["R2_KEY"], html)
+                        lambda m: m.group(1) + os.environ["PUBLIC_BASE"] + "/" + os.environ["R2_KEY"]
+                        + "?v=" + ver_tag, html)
           html = re.sub(r'(id="dtext"[^>]*>)[^<]*', lambda m: m.group(1) + "下载 " + fname, html)
 
           p.write_text(html, encoding="utf-8")
