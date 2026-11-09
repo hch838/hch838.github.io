@@ -1,6 +1,6 @@
 # Tasker 直装包自动同步
 
-每 2 小时探测开发者下载页，发现版本变化时把 APK 拉下来传到 Cloudflare R2，并更新下载页信息。
+每 15 分钟探测开发者下载页，发现版本变化时把 APK 拉下来传到 Cloudflare R2，并更新下载页信息。
 
 - 下载地址：`https://dl.273150.xyz/Tasker.latest.apk`（固定不变）
 - 页面：`https://273150.xyz/dl/`
@@ -92,6 +92,8 @@ R2 里始终只有一个对象 `Tasker.latest.apk`，覆盖写，不累积。下
 
 **cron 不准时。** GitHub schedule 在整点前后延迟 10–30 分钟常见，偶尔跳过。60 天无 commit 会自动停用，需在 Actions 页面点 Enable。
 
+**GitHub 的 schedule 在本仓库上完全不触发（待观察）。** 2026-11-09 12:04 建好工作流后，`0 * * * *` 连续 3 个整点窗口（13:00 / 14:00 / 15:00）没有任何 `schedule` 事件运行，仓库全部 `schedule` 运行数为 0，而手动 `workflow_dispatch` 每次都能跑通。已排除：文件编码/BOM、YAML 语法、Actions 权限、默认分支、fork/archived 状态、仓库不活跃。已改为非整点 `5,20,35,50 * * * *` 并换路径重新注册（`sync.yml`）再观察。若仍不触发，需改用外部定时器调 dispatch API（Cloudflare Worker Cron → `POST /repos/{owner}/{repo}/actions/workflows/sync.yml/dispatches`）。
+
 ## 免费额度
 
 R2 每月 10 GB-month 存储、100 万次 Class A、1000 万次 Class B，**出站流量永久免费**。当前只存一个 46MB 对象，约占免费额度 0.45%。
@@ -100,7 +102,7 @@ R2 每月 10 GB-month 存储、100 万次 Class A、1000 万次 Class B，**出�
 
 ```
 dropbox-to-github/
-├── .github/workflows/dropbox-sync.yml
+├── .github/workflows/sync.yml
 ├── dl/index.html
 ├── scripts/axml.py        # 纯标准库读 APK versionName
 └── README.md
