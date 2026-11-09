@@ -22,6 +22,8 @@ env:
   R2_KEY: "Tasker.latest.apk"
   PUBLIC_BASE: "https://dl.273150.xyz"
   HTML_FILE: "dl/index.html"
+  # 导航页里那条“直购版”链接，跟着同步一起改
+  HTML2_FILE: "Tasker/index.html"
   STATE_FILE: ".sync-state.json"
   TZ: "Asia/Shanghai"
 
@@ -222,6 +224,7 @@ jobs:
           NEW_LASTMOD: ${{ steps.probe.outputs.lastmod }}
           NEW_SHA: ${{ steps.upload.outputs.sha256 }}
           NEW_FILENAME: ${{ steps.apkinfo.outputs.filename }}
+          NEW_VERSION: ${{ steps.apkinfo.outputs.version }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -255,6 +258,24 @@ jobs:
           html = re.sub(r'(id="dtext"[^>]*>)[^<]*', lambda m: m.group(1) + "下载 " + fname, html)
 
           p.write_text(html, encoding="utf-8")
+
+          # 导航页里那条“直购版”也指向同一个 CDN 地址，改成最新版本
+          p2 = pathlib.Path(os.environ.get("HTML2_FILE", "Tasker/index.html"))
+          if p2.exists():
+              ver = (os.environ.get("NEW_VERSION") or "").strip()
+              day = datetime.datetime.now().strftime("%Y-%m-%d")
+              url2 = os.environ["PUBLIC_BASE"] + "/" + os.environ["R2_KEY"] + "?v=" + ver_tag
+              label = (f"Tasker_{ver}_直购版（{day}更新）" if ver
+                       else f"Tasker_直购版（{day}更新）")
+              nav = p2.read_text(encoding="utf-8")
+              nav = re.sub(r'(id="latest-direct"[^>]*href=")[^"]*',
+                           lambda m: m.group(1) + url2, nav)
+              nav = re.sub(r'(id="latest-direct"[^>]*>)[^<]*',
+                           lambda m: m.group(1) + label, nav)
+              p2.write_text(nav, encoding="utf-8")
+              print(f"导航页已更新：{label} -> {url2}")
+          else:
+              print(f"未找到 {p2}，跳过导航页更新")
 
           pathlib.Path(os.environ["STATE_FILE"]).write_text(json.dumps({
               "source_url": os.environ.get("NEW_URL", ""),
