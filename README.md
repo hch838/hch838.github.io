@@ -40,10 +40,22 @@ Decide whether sync  → 与 state 比对
 Download package     → 校验 PK 文件头 + 最小体积
 Upload to R2         → 固定 key Tasker.latest.apk，覆盖写
 Verify public URL    → 公开地址非 200 则中断
-Update page & state  → 改 dl/index.html + 写 state + commit
+Update page & state  → 改 dl/index.html + 改 Tasker/index.html + 写 state + commit
 ```
 
 任何一步失败都会中断，不会发布指向坏链接的页面。
+
+## 两个页面一起改
+
+| 文件 | 改什么 | 靠什么定位 |
+|---|---|---|
+| `dl/index.html` | 文件名、大小、同步时间、sha、下载链接 | `id="file-name"` / `id="file-size"` / `id="sync-time"` / `id="file-hash"` / `id="dlink"` / `id="dtext"` |
+| `Tasker/index.html` | 列表最后一条“直购版”的 href 与文字 | `id="latest-direct"` |
+
+两者都指向同一个 CDN 地址 `https://dl.273150.xyz/Tasker.latest.apk?v=<sha 前 8 位>`，导航页文字随版本号与当天日期变化，形如 `Tasker_6.7.9_直购版（2026-11-09更新）`。
+
+用 `id` 而不是“第几个 li”来定位，是为了以后往列表里加条目时不会被改错。**新增条目时不要把 `id="latest-direct"` 弄丢**，否则那条链接会停在旧版本不再更新（工作流会打印“未找到 … 跳过导航页更新”）。
+
 
 ## 仓库 Secrets
 
