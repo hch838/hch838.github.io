@@ -2,8 +2,9 @@ name: Tasker Direct APK Sync
 
 on:
   schedule:
-    # 每小时探测一次。只有内容变化才下载和提交，无变化时运行约 20 秒。
-    - cron: "0 * * * *"
+    # 每 15 分钟探测一次，刻意避开整点：GitHub 的 cron 在 :00 最拥堵，实测会被整段丢掉。
+    # 无变化时整轮运行约 20 秒，只有 ETag/大小变了才下载和提交。
+    - cron: "5,20,35,50 * * * *"
   workflow_dispatch:
 
 permissions:
