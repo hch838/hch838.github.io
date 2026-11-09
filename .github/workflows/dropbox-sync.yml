@@ -2,8 +2,8 @@ name: Tasker Direct APK Sync
 
 on:
   schedule:
-    # 每 2 小时探测一次。高峰可能延迟 10-30 分钟，偶尔跳过。
-    - cron: "0 */2 * * *"
+    # 每小时探测一次。只有内容变化才下载和提交，无变化时运行约 20 秒。
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -158,6 +158,26 @@ jobs:
             exit 1
           fi
 
+      - name: Read APK version
+        id: apkinfo
+        if: steps.decide.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          VERSION=$(python3 scripts/axml.py /tmp/payload.apk 2>/dev/null || true)
+          TS=$(date '+%Y%m%d_%H%M')
+          if [ -n "$VERSION" ]; then
+            NAME="Tasker-${VERSION}-${TS}.apk"
+            echo "解析到版本号: $VERSION"
+          else
+            NAME="Tasker-${TS}.apk"
+            echo "未能解析版本号，文件名只带时间"
+          fi
+          echo "最终下载名: $NAME"
+          {
+            echo "version=$VERSION"
+            echo "filename=$NAME"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Upload to R2
         id: upload
         if: steps.decide.outputs.changed == 'true'
@@ -167,10 +187,8 @@ jobs:
           AWS_DEFAULT_REGION: auto
         run: |
           set -euo pipefail
-          URL="${{ steps.src.outputs.url }}"
-          RAWNAME=$(basename "${URL%%\?*}")
-          FILENAME=$(python3 -c "import urllib.parse,sys; print(urllib.parse.unquote(sys.argv[1]))" "$RAWNAME")
-          echo "原始文件名: $FILENAME"
+          FILENAME="${{ steps.apkinfo.outputs.filename }}"
+          echo "下载时文件名: $FILENAME"
 
           aws s3 cp /tmp/payload.apk "s3://$R2_BUCKET/$R2_KEY" \
             --endpoint-url "https://$R2_HOST" \
@@ -202,7 +220,7 @@ jobs:
           NEW_CLEN: ${{ steps.probe.outputs.clen }}
           NEW_LASTMOD: ${{ steps.probe.outputs.lastmod }}
           NEW_SHA: ${{ steps.upload.outputs.sha256 }}
-          NEW_FILENAME: ${{ steps.upload.outputs.filename }}
+          NEW_FILENAME: ${{ steps.apkinfo.outputs.filename }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
