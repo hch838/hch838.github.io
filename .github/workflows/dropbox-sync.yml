@@ -159,6 +159,7 @@ jobs:
           fi
 
       - name: Upload to R2
+        id: upload
         if: steps.decide.outputs.changed == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
