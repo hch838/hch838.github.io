@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT</title>
+    <style>
+        * {
+            margin: 0;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+</head>
+
+<body>
+    <div id="List">
+    </div>
+    <script>
+        let MQTT,
+            model = '主持人',
+            msglist = [],//装消息
+            time = Date.now(),//测试连接速度
+            par = location.search ? JSON.parse('{"' + location.search.substr(1).replace(/\=/g, '":"').replace(/&/g, '","') + '"}') : {},
+            userName = par.username,//账号
+            password = par.password,//密码
+            url = par.url,//服务器
+            aaa = 'only',//
+            zzz = 'many',//
+            clientid = Date.now().toString(36),//客户端id
+            key = 'MenQianDaQiaoXiaYouGuoYiQunYaKuaiLaiKuaiLaiShuYiShu24678',//AES加密密钥
+            willMessage = new Paho.Message(CryptoJS.AES.encrypt(JSON.stringify({ type: 'offline', model: model }), key).toString());
+        willMessage.destinationName = aaa;
+
+        MQTT = new Paho.Client(url, clientid);
+        MQTT.onConnected = () => MsgList('【连接成功】：' + MQTT.host);
+        MQTT.onConnectionLost = (m) => MsgList('【连接断开】：' + m.errorMessage);
+        MQTT.onMessageArrived = onMessageArrived;//收到消息时
+        MQTT.connect({
+            userName: userName,
+            password: password,
+            // willMessage: willMessage,
+            keepAliveInterval: 999999,//无活动断开时间
+            reconnect: true, //连接丢失时尝试重新连接
+            onFailure: () => MsgList('【连接失败】'),//连接请求失败或超时
+            onSuccess: () => {//连接确认时
+                MsgList('【连接确认】：用时' + (Date.now() - time));
+                time = Date.now()
+                MQTT.subscribe(zzz, {//订阅主题
+                    qos: 1,
+                    onFailure: () => MsgList('【订阅失败】：' + zzz),
+                    onSuccess: () => {
+                        MsgList('【订阅成功】：' + zzz);
+                        setInterval(() => {
+                            Send({ type: 'online', time: Date.now() });
+                        }, 1234);
+                    }
+                });
+            }
+        });
+
+
+        function onMessageArrived(data) {//收到消息
+            console.log('【收到原始内容】：' + data.payloadString);
+            if (data.payloadString.indexOf('U2FsdGVkX') === 0) {
+                msg = CryptoJS.AES.decrypt(data.payloadString, key).toString(CryptoJS.enc.Utf8);//解密
+            } else {
+                msg = data.payloadString;
+            }
+            r = data.retained ? '保留消息' : ''
+            MsgList('【收到消息】：【' + data.topic + r + '】' + msg);
+            msg = JSON.parse(msg)
+            if (msg.type === 'ping') {
+                // Send({ type: 'pong', model: model });
+            } else {
+                null
+            }
+        }
+
+        function Send(msg) {
+            msg = JSON.stringify(msg)
+            MsgList('【发送' + aaa + '】：' + msg)
+            // msg = CryptoJS.AES.encrypt(msg, key).toString();//加密
+            MQTT.send(aaa, msg, 1);
+        }
+        function MsgList(a) {
+            msglist.unshift(a);
+            msglist.length > 50 ? msglist.pop() : 0;
+            List.innerHTML = '';
+            List.insertAdjacentHTML("beforeend", '<p>' + msglist.join('</p><p>') + '</p>')
+        }
+    </script>
+</body>
+
+</html>

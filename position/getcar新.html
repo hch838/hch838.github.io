@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta http-equiv="refresh" content="60">
+    <title>我在这儿</title>
+    <script>
+        if (!location.search) {
+            location.href = 'https://ditu.amap.com/';
+        };
+    </script>
+    <script src="https://webapi.amap.com/maps?v=1.4.14&key=47d57deacf67daf4fe68b31c3dcdc253"></script>
+    <style>
+        html,
+        body,
+        #container {
+            margin: 0;
+            height: 100%;
+        }
+
+        .in {
+            position: absolute;
+            top: 0;
+            right: 2px;
+            z-index: 200;
+            text-align: right;
+        }
+
+        #shijian {
+            color: #00f;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container"></div>
+    <div class="in">
+        <input type="button" value="@到达我这里要多久？" id="shijian" onclick="dingwei()">
+        <div id="Mudd">未使用导航</div>
+    </div>
+    <script>
+        fetch('https://tsapi.amap.com/v1/track/terminal/lastpoint' + location.search + '&key=8aeec61b8d5e8a187ef462f912760781&sid=39156&correction=n')
+            .then(res => res.json())
+            .then(res => one(res.data))
+        // .catch(er => alert('数据错误'))
+        let map = {};
+        let che = {};
+        let gaode = [];
+        let driving = {};
+        function one(data) {
+            // console.log(data)
+            let gps = [];
+            gps.push(data.props.shangyidian.split(','));
+            gps.push(data.location.split(','));
+            AMap.convertFrom(gps, "gps", function (status, result) {
+                if (result.info === "ok") {
+                    gaode = result.locations;//gps转高德坐标
+                    // console.log(gaode)
+                    map = new AMap.Map("container", {
+                        zoom: 18,
+                        center: gaode[1]//中心点坐标
+                    })
+                    let times = parseInt((Date.now() - data.locatetime) / 1000);//现在时间减最后上传时间
+                    let Text = new AMap.Text({
+                        map: map,
+                        position: gaode[1],//添加点
+                        offset: new AMap.Pixel(0, -50)//偏移
+                    });
+                    function text() {
+                        let ttt = times >= 60 ? parseInt(times / 60) + '分钟' : times + '秒'
+                        Text.setText(ttt + '前位置，速度' + data.speed + ' km/h');
+                        times++;
+                    }//添加文字
+                    text();
+                    let runid = setInterval(() => {
+                        text();
+                        times > 60 ? clearInterval(runid) : '';
+                    }, 1000)
+                    che = new AMap.Marker({
+                        map: map,
+                        position: gaode[1],
+                        icon: "1.png",
+                        offset: new AMap.Pixel(-24, -12),//车偏移
+                        autoRotation: true//移动时自动旋转
+                    });
+                    if (data.props.zhongdiangps) {
+                        Mudd.innerHTML = '目的地：' + data.props.mudd;
+                        two(gaode[1], data.props.zhongdiangps.split(','), data.speed);//有终点坐标就绘制轨迹并播放
+                    } else {
+                        three()//没有终点坐标就只显示位置，两个点确定方向
+                    }
+                }
+            })
+        }
+        function three() {
+            // console.log(guiji);
+            che.moveAlong(gaode, 99999)
+        }
+        function dingwei() {
+            shijian.value = '请稍等...';
+            // 以下定位模块
+            AMap.plugin('AMap.Geolocation', function () {
+                var geolocation = new AMap.Geolocation({
+                    enableHighAccuracy: true,//是否使用高精度定位，默认:true
+                    timeout: 15000           //超时
+                });
+                geolocation.getCurrentPosition(function (status, result) {
+                    if (status == 'complete') {
+                        new AMap.Marker({
+                            map: map,
+                            position: result.position//添加点
+                        });
+                        new AMap.Text({
+                            map: map,
+                            position: result.position,//添加点
+                            offset: new AMap.Pixel(0, -50),//偏移
+                            text: '你大概在这里'
+                        });
+                        // let my = [result.position.lng,result.position.lat];//使用人的位置
+                        // let now = [gaode[1].lng, gaode[1].lat];
+                        let address = result.formattedAddress.replace('市', '市\n');
+                        // 以下路线规划
+                        driving.url && driving.clear();
+                        AMap.plugin('AMap.Driving', function () {
+                            let driving = new AMap.Driving({
+                                policy: AMap.DrivingPolicy.LEAST_TIME,//最快方式
+                                map: map,
+                                hideMarkers: true,//隐藏首尾图标
+                            })
+                            driving.search(gaode[1], result.position, function (status, result) {
+                                let fen = parseInt(result.routes[0].time / 60)
+                                fen = fen > 60 ? parseInt(fen / 60) + '小时' + fen % 60 + '分钟' : fen + '分钟'
+                                shijian.value = '@到达我这里要多久？';
+                                alert('您的位置大概是：\n' + address + '\n\n到达您这里大概需要时间：\n' + fen)
+                            })
+                        })
+                        // 以上路线规划
+                    } else {
+                        shijian.value = '定位失败';
+                    }
+                });
+            });
+            // 以上定位模块
+        }
+        function two(qi, zhong, speed) {
+            // console.log(qi)
+            // console.log(zhong)
+            // console.log(speed)
+            AMap.plugin('AMap.Driving', function () {
+                driving = new AMap.Driving({
+                    policy: AMap.DrivingPolicy.LEAST_TIME,//最快方式
+                    map: map,//显示路线
+                    // hideMarkers:true,//隐藏首尾图标
+                    autoFitView: false//不缩放
+                })
+                driving.search(qi, zhong, function (status, result) {
+                    // console.log('终点规划');
+                    // console.log(result);
+                    let distance = result.routes[0].distance;
+                    let time = result.routes[0].time;
+                    distance = distance < 1000 ? distance + '米' : distance / 1000 + '公里';
+                    if (time < 60) {
+                        driving.clear();
+                        three();
+                        Mudd.innerHTML += '<br>已到达'
+                    } else {
+                        new AMap.Marker({
+                            map: map,
+                            position: qi,
+                        });
+                        time = parseInt(time / 60);
+                        time = time > 60 ? parseInt(time / 60) + '小时' + time % 60 + '分钟' : time + '分钟';
+
+                        Mudd.innerHTML += '<br>剩余路程：' + distance + '<br>' + time + '后到达';
+                        let steps = result.routes[0].steps;
+                        let guiji = [];
+                        for (let i = 0; i < steps.length; i++) {
+                            // console.log(steps[i].path);
+                            let path = steps[i].path;
+                            for (let j = 0; j < path.length; j++) {
+                                // console.log(path[j]);
+                                guiji.push([path[j].lng, path[j].lat])
+                            }
+                        }
+                        // console.log(guiji);
+                        che.moveAlong(guiji, speed < 30 ? 30 : speed)
+                        che.on('moveend', () => {
+                            if (map.getZoom() === 18) {
+                                map.setCenter(che.getPosition());//设置中心点
+                            }
+                            // map.setFitView();//聚焦
+                            // if(che.getPosition() === guiji[guiji.length - 1]){
+                            //     alert('已到达终点')
+                            // }
+                        })
+                    }
+                })
+            })
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>广播</title>
+</head>
+
+<style>
+    audio {
+        width: 100%;
+    }
+
+    ul {
+        list-style-type: none;
+        display: flex;
+        flex-wrap: wrap;
+        padding: 0;
+    }
+
+    ul>li {
+        cursor: pointer;
+        border-radius: 16px;
+        padding: 8px;
+        margin: 2px;
+        color: white;
+        text-align: center;
+        box-sizing: border-box;
+    }
+
+    .aa {
+        display: flex
+    }
+
+    .a,
+    img {
+        width: 30vw
+    }
+
+    .b {
+        width: 70vw;
+        margin-left: 10px
+    }
+
+    h2,
+    #J {
+        text-align: center
+    }
+</style>
+
+<body>
+    <div class="aa">
+        <div class="a"><img id="IMG"></div>
+        <div class="b">
+            <h2 id="T"></h2>
+            <p id="J"></p>
+        </div>
+    </div>
+    <p id="P"></p>
+    <audio id="AAA" controls></audio>
+    <ul id="List2"></ul>
+    <hr>
+    <ul id="List1"></ul>
+</body>
+<script>
+    let arr = [];
+    fetch('https://webapi.qingting.fm/api/mobile/radio/filter')
+        .then(d => d.json())
+        .then(d => one(d))
+
+    function one(d) {
+        // console.log(d)
+        for (i in d) {
+            // console.log(d[i])
+            for (j of d[i]) {
+                // console.log(j)
+                List1.insertAdjacentHTML("beforeend", '<li title="' + j.id + '" style="background-color:rgb(' + RGB() + ')">' + j.title + '</li>')
+            }
+        }
+    }
+
+    function two(id) {
+        // console.log(id)
+        fetch('https://webapi.qingting.fm/api/mobile/radiopage/list/' + id)
+            .then(d => d.json())
+            .then(d => {
+                arr = d.radioList;
+                // console.log(arr.length)
+                List2.innerHTML = '';//清空列表
+                for (i = 0; i < arr.length; i++) {
+                    // console.log(i.title)
+                    List2.insertAdjacentHTML("beforeend", '<li id="' + i + '" style="background-color:rgb(' + RGB() + ')">' + arr[i].title + '</li>')
+                }
+            })
+
+    }
+    function three(d) {
+        AAA.src = 'https://lhttp.qingting.fm/live/' + d.content_id + '/64k.mp3';
+        setTimeout(() => {
+            AAA.play()
+        }, 500);
+        IMG.src = d.cover;
+        T.innerHTML = d.title
+        P.innerHTML = '<b>简介：</b>' + d.description;
+        J.innerHTML = '<b>当前节目：</b>' + d.nowplaying.title;
+        // console.log(d.region.title)
+        // console.log(d.city.title)
+    }
+
+    document.getElementById('List1').addEventListener('click', function (event) {
+        // console.log(event)
+        if (event.target.tagName === 'LI') {
+            // console.log(event.target.title)
+            two(event.target.title)
+        }
+    });
+    document.getElementById('List2').addEventListener('click', function (event) {
+        // console.log(event)
+        if (event.target.tagName === 'LI') {
+            // console.log(arr[event.target.id])
+            three(arr[event.target.id])
+        }
+    });
+
+    function RGB() {
+        return [1, 2, 3].map(n => Math.floor(Math.random() * 256));
+    }
+</script>
+
+</html>

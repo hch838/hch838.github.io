@@ -1,0 +1,66 @@
+<TaskerData sr="" dvi="1" tv="4.9u5m">
+	<Task sr="task2">
+		<cdate>1717391365481</cdate>
+		<edate>1717392125609</edate>
+		<id>2</id>
+		<nme>跳过高版本初始化</nme>
+		<Action sr="act0" ve="7">
+			<code>410</code>
+			<label>先安装低版本（如4.9u5），打开Tasker确认2次后进入主界面，导入此任务并手动运行，闪退后安装高版本即可。</label>
+			<Str sr="arg0" ve="3">/data/data/net.dinglisch.android.taskerm/shared_prefs/net.dinglisch.android.tasker.statey.xml</Str>
+			<Str sr="arg1" ve="3">&lt;?xml version='1.0' encoding='utf-8' standalone='yes' ?&gt;
+&lt;map&gt;
+&lt;boolean name="PREF_HAS_COMPLETED_INITIAL_TODO" value="true" /&gt;
+&lt;boolean name="USER_HAS_ACCEPTED_PROMINENT_DISCLAIMER" value="true" /&gt;
+&lt;boolean name="USER_HAS_CHOSE_TASKY_OR_TASKER_TEST" value="true" /&gt;
+&lt;boolean name="dscl" value="true" /&gt;
+&lt;boolean name="ipnu" value="true" /&gt;
+&lt;/map&gt;</Str>
+			<Int sr="arg2" val="0"/>
+			<Int sr="arg3" val="0"/>
+		</Action>
+		<Action sr="act1" ve="7">
+			<code>410</code>
+			<Str sr="arg0" ve="3">/data/data/net.dinglisch.android.taskerm/shared_prefs/net.dinglisch.android.tasker.preffy.xml</Str>
+			<Str sr="arg1" ve="3">&lt;?xml version='1.0' encoding='utf-8' standalone='yes' ?&gt;
+&lt;map&gt;
+&lt;boolean name="IS_USING_TASKY" value="false" /&gt;
+&lt;boolean name="PREF_ADVANCED_EXPORT_DESCRIPTION" value="false" /&gt;
+&lt;boolean name="PREF_ALLOW_INSECURE_TASK_RUN_REQUESTS" value="false" /&gt;
+&lt;boolean name="PREF_ASK_FOR_PERMISSIONS_ON_APP_EXIT" value="true" /&gt;
+&lt;boolean name="PREF_EXPORT_LIGHT" value="false" /&gt;
+&lt;boolean name="PREF_IS_USING_TEST_SERVER" value="false" /&gt;
+&lt;boolean name="PREF_START_MONITOR_ON_APP_OPEN" value="false" /&gt;
+&lt;boolean name="PREF_USE_2024_TASKER" value="false" /&gt;
+&lt;boolean name="sHapt" value="false" /&gt;
+&lt;int name="dragModeNew" value="0" /&gt;
+&lt;boolean name="tpEn" value="false" /&gt;
+&lt;/map&gt;</Str>
+			<Int sr="arg2" val="0"/>
+			<Int sr="arg3" val="0"/>
+		</Action>
+		<Action sr="act2" ve="7">
+			<code>664</code>
+			<Str sr="arg0" ve="3">%kkk</Str>
+			<Str sr="arg1" ve="3">android.os.Process</Str>
+			<Str sr="arg2" ve="3">myPid
+{int} ()</Str>
+			<Str sr="arg3" ve="3"/>
+			<Str sr="arg4" ve="3"/>
+			<Str sr="arg5" ve="3"/>
+			<Str sr="arg6" ve="3"/>
+			<Str sr="arg7" ve="3"/>
+			<Str sr="arg8" ve="3"/>
+			<Str sr="arg9" ve="3"/>
+		</Action>
+		<Action sr="act3" ve="7">
+			<code>123</code>
+			<Str sr="arg0" ve="3">kill -9 %kkk</Str>
+			<Int sr="arg1" val="0"/>
+			<Int sr="arg2" val="0"/>
+			<Str sr="arg3" ve="3"/>
+			<Str sr="arg4" ve="3"/>
+			<Str sr="arg5" ve="3"/>
+		</Action>
+	</Task>
+</TaskerData>

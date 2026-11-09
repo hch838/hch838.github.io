@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网页触发Tasker任务3种方案</title>
+</head>
+
+<body>
+    <div>
+        <a href="tasker://assistantactions?task=方案0&par1=参数1&par2=参数2">方案0：使用tasker://，不需要配置文件，直达任务，可以发送2个变量。</a>
+    </div><br>
+    <div>
+        <a href="tasker://secondary?aaa=参数a&bbb=参数b&ccc=参数c">方案1：使用tasker://，需要配置文件接收，可以发送多个变量。</a>
+    </div><br>
+    <div>
+        <a href="#" onclick="Get();return false;">方案2：使用HTTPGET，需要配置文件接收，可以发送并返回数据。</a>
+    </div>
+
+    <script>
+        function Get() {
+            fetch('http://127.0.0.1:1821/{aaa:参数a;bbb:参数b;ccc:参数c}')
+                .then(resp => resp.text())
+                .then(text => alert('以下是Tasker返回的信息：\n' + text))
+                .catch(err => alert('请求失败: ' + err));
+        }
+    </script>
+</body>
+
+</html>

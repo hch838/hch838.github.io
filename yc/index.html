@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>晕车音盾</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+            color: #333;
+        }
+
+        .container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        h1 {
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+        }
+
+        p {
+            color: #666;
+            margin-bottom: 2rem;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+        }
+
+        button {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        #playBtn {
+            background-color: #3498db;
+            color: white;
+        }
+
+        #playBtn:hover {
+            background-color: #2980b9;
+        }
+
+        #stopBtn {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        #stopBtn:hover {
+            background-color: #c0392b;
+        }
+
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>晕车音盾</h1>
+        <p>时机：出行前1-3分钟使用效果最佳</p>
+        <p>时长：默认60秒，听满即可</p>
+        <p>设备：必须佩戴双耳耳机，双耳同步接收声音</p>
+        <p>音量：调至清晰不刺耳（相当于繁忙街道环境噪音）</p>
+        <p>效果可持续约2小时，如需更长保护时间，可重复聆听</p>
+        <div class="btn-group">
+            <button id="playBtn">播放1分钟</button>
+            <button id="stopBtn" disabled>停止播放</button>
+        </div>
+    </div>
+    <script>
+        let audioCtx = null;
+        let oscillator = null;
+        let gainNode = null;
+        const playBtn = document.getElementById('playBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        // 初始化音频上下文
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            // 如果上下文处于暂停状态（浏览器自动暂停策略），则恢复
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+        // 开始播放
+        function startSound() {
+            initAudio();
+            // 创建振荡器
+            oscillator = audioCtx.createOscillator();
+            // 创建增益节点（用于控制音量，防止突然全音量播放吓到用户）
+            gainNode = audioCtx.createGain();
+            // 设置波形为正弦波
+            oscillator.type = 'sine';
+            // 设置频率为 100Hz
+            oscillator.frequency.setValueAtTime(100, audioCtx.currentTime);
+            // 设置音量（0到1之间，0.5较为适中）
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            // 连接节点：振荡器 -> 增益节点 -> 输出设备
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            // 开始播放
+            oscillator.start();
+            // 更新UI状态
+            playBtn.disabled = true;
+            stopBtn.disabled = false;
+            setTimeout(() => {
+                stopSound()
+            }, 60000);
+        }
+        // 停止播放
+        function stopSound() {
+            if (oscillator) {
+                oscillator.stop();
+                oscillator.disconnect();
+                oscillator = null;
+            }
+            if (gainNode) {
+                gainNode.disconnect();
+                gainNode = null;
+            }
+            // 更新UI状态
+            playBtn.disabled = false;
+            stopBtn.disabled = true;
+        }
+        // 绑定事件
+        playBtn.addEventListener('click', startSound);
+        stopBtn.addEventListener('click', stopSound);
+    </script>
+</body>
+
+</html>

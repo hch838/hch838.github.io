@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <script>
+        window._AMapSecurityConfig = {
+            securityJsCode: '290ddc4b0d33be7bc9b354bc6a4ca614',//bb35c
+            // securityJsCode: 'd360b45265a6b65016eca2fb8d59da48',//9a779
+        }
+    </script>
+    <script src='https://webapi.amap.com/maps?v=2.0&key=6f025e700cbacbb0bb866712d20bb35c'></script>
+    <!-- <script src='https://webapi.amap.com/maps?v=2.0&key=c2d8624cfd8ff1058ab6e3ea23d9a779'></script> -->
+    <style>
+        html,
+        body,
+        #container {
+            margin: 0;
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div id='container'>加载中...</div>
+</body>
+<script>
+    map = new AMap.Map("container", {
+        zoom: 10,
+        // center: [114, 22.5]
+    });
+</script>
+
+</html>

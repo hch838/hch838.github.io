@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>在线导入Tasker配置</title>
+    <script src="https://cdn.bootcss.com/pako/1.0.10/pako.min.js"></script>
+    <style>
+        #h2{
+            text-align: center;
+        }
+        #btn,#aaa{
+            display: block;
+            margin: 10px auto;
+        }
+    </style>
+</head>
+<body>
+    <h2 id="h2">没有配置或运行错误</h2>
+    <a id="aaa">导入</a>
+    <input id="btn" type="button" value="导入">
+    <pre id="div1">没有配置或运行错误</pre>
+    <script>
+        // console.log(location.search);
+        let i = location.search;
+        i = i.replace(/^\?/, '');
+        aaa.href = i;
+        btn.onclick = () => location.href = i;
+        let j = i.replace(/^.+?:\/\//, '');
+        // console.log(j);
+        j = JieMi(j);
+        div1.textContent = j;
+        j = j.match(/(?<=nme\>).+(?=<\/nme)/i);
+        // console.log(j[0]);
+        h2.innerHTML = j;
+
+        // function JiaMi(str) {//加密
+        //     let binaryString = pako.gzip(str, { to: 'string' });
+        //     return btoa(binaryString)
+        // }
+        function JieMi(b64Data) {//解密
+            let strData = atob(b64Data);
+            let charData = strData.split('').map((x) => { return x.charCodeAt(0) });
+            let binData = new Uint8Array(charData);
+            let data = pako.inflate(binData);
+            let arr = new Uint8Array(data);
+            let str = '';
+            for (let i = 0; i < arr.length; i++) {
+                str += String.fromCharCode(arr[i])
+            }
+            return(decodeURIComponent(escape(str)))
+        }
+    </script>
+</body>
+</html>

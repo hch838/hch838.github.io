@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>位置共享</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+    <script src='https://webapi.amap.com/maps?v=2.0&key=47d57deacf67daf4fe68b31c3dcdc253'></script>
+    <!-- <script src='https://webapi.amap.com/maps?v=2.0&key=c2d8624cfd8ff1058ab6e3ea23d9a779'></script> -->
+    <style>
+        html,
+        body,
+        #container {
+            margin: 0;
+            height: 100%;
+        }
+
+        #but_a {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            z-index: 200;
+        }
+
+        #but_b {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 200;
+        }
+
+        #but_c {
+            position: absolute;
+            top: 5%;
+            right: 0;
+            z-index: 200;
+        }
+
+        #but_d {
+            position: absolute;
+            top: 10%;
+            right: 0;
+            z-index: 200;
+        }
+    </style>
+</head>
+
+<body>
+    <div id='container'>加载中...</div>
+    <input type="button" value="开始连接..." id="but_a">
+    <input type="button" value="版本10" id="but_b">
+    <input type="button" value="看全部" id="but_c" onclick=but_c()>
+    <input type="button" value="看自己" id="but_d" onclick=but_d()>
+
+
+</body>
+<script>
+    let MQTT,
+        cid = Getid(),//稳定id
+        par = location.search ? JSON.parse('{"' + location.search.substr(1).replace(/\=/g, '":"').replace(/&/g, '","') + '"}') : {},
+        fwq = par.fwq ? par.fwq : 1,//服务器序号
+        key = par.key ? par.key : 'MenQianDaQiaoXiaYouGuoYiQunYaKuaiLaiKuaiLaiShuYiShu24678',//AES加密密钥
+        name = par.name ? decodeURI(par.name) : Name(),//自己的名字
+        topic = par.topic ? par.topic : 'topic27315',//订阅和发送的主题
+        userName = par.username ? par.username : '',//账号
+        password = par.password ? par.password : '',//密码
+        clientid = par.clientid ? par.clientid : Date.now().toString(36),//客户端id
+        retained = par.retained ? true : false,//是否保留消息
+        fwqarr = [
+            'ws://public.mqtthq.com:8083/mqtt',//美国900
+            'wss://broker.emqx.io:8084/mqtt',//美国1200
+            'wss://mqtt.eclipseprojects.io/mqtt',//美国1200
+            'wss://broker.hivemq.com:8884/mqtt',//德国1800
+            'wss://test.mosquitto.org:8081/mqtt',//法国1500
+            'wss://bemfa.com:9504/wss'//巴法云广州30
+        ],//服务器列表
+        url = par.url ? par.url : fwqarr[fwq],//服务器
+        willMessage = new Paho.Message(CryptoJS.AES.encrypt(JSON.stringify({ a: 'over', n: name, id: cid }), key).toString());
+    willMessage.destinationName = topic;
+
+    let mdd = document.getElementById("but_a");
+    let map;//主地图
+    let myico;//用户定位图标
+    let mypos;//用户定位坐标
+    let users = {};//用户们
+
+    MQTT = new Paho.Client(url, clientid);
+    MQTT.onConnected = () => mdd.value = '连接成功：' + MQTT.host;
+    MQTT.onConnectionLost = (m) => mdd.value = '连接断开：' + m.errorMessage;
+    MQTT.onMessageArrived = onMessageArrived;//收到消息时
+    MQTT.connect({
+        userName: userName,
+        password: password,
+        willMessage: willMessage,
+        keepAliveInterval: 4,
+        reconnect: true, //连接丢失时尝试重新连接
+        onFailure: () => mdd.value = '连接失败',//连接请求失败或超时
+        onSuccess: () => {//连接确认时
+            mdd.value = '连接确认';
+            MQTT.subscribe(topic, {//订阅主题
+                qos: 1,
+                onSuccess: () => mdd.value = '订阅' + topic + '成功',
+                onFailure: () => mdd.value = '订阅' + topic + '失败'
+            });
+        }
+    });
+
+
+    function onMessageArrived(data) {//收到消息
+        msg = CryptoJS.AES.decrypt(data.payloadString, key).toString(CryptoJS.enc.Utf8);//解密
+        console.log(msg);
+        msg = JSON.parse(msg);
+        console.log(msg);
+        if (msg.id !== cid) {
+            ttt = new Date().toLocaleTimeString();//时分秒
+            mdd.value = ttt + '：' + msg.n + '发来位置';
+            if (users[msg.id] == undefined) {//首次新增图标
+                console.log('新增别人图标');
+                Renshu(1);
+                users[msg.id] = {};
+                AMap.plugin('AMap.MoveAnimation', function () {
+                    users[msg.id].ico = new AMap.Marker({
+                        map: map,
+                        position: msg.a,
+                        label: {
+                            content: msg.n + ' ' + ttt,
+                            direction: 'right',
+                            offset: [0, -24]
+                        }
+                    });
+                    users[msg.id].ico.on('click', Click);
+                    but_c();
+                })
+            } else {//非首次
+                if (msg.a === 'over') {//离线了
+                    Renshu(-1);
+                    users[msg.id].a = 'over';//记录下离线
+                    users[msg.id].ico.setLabel({
+                        content: msg.n + ' ' + ttt + '【离线】'
+                    });
+                } else {
+                    console.log('移动图标');
+                    if (users[msg.id].a === 'over') {//是否离线
+                        Renshu(1);
+                        users[msg.id].a = '';
+                    }
+                    users[msg.id].ico.setLabel({
+                        content: msg.n + ' ' + ttt
+                    });
+                    users[msg.id].ico.moveTo(msg.a, {
+                        duration: 500,
+                        autoRotation: false//不旋转
+                    });
+                }
+            }
+        } else {
+            console.log('是自己消息');
+        }
+        // console.log(JSON.parse(m.payloadString));
+        // mdd.value = "收到消息：" + JSON.parse(m.payloadString).a;
+        // if (m.topic === 'car') {//收到车辆位置
+        //     car.moveTo(JSON.parse(m.payloadString).a, {
+        //         duration: 500,
+        //     });
+        // } else {//收到人员位置
+
+        // }
+
+    }
+
+
+
+    //显示地图
+    map = new AMap.Map("container", {
+        zoom: 10
+    });
+
+
+    KongJian()
+
+
+    //以下控件
+    function KongJian() {
+        //放大缩小控件
+        AMap.plugin("AMap.ToolBar", function () {
+            map.addControl(new AMap.ToolBar({
+                "position": "LB",
+                "offset": [10, 50]
+            }));
+        });
+        //放大缩小控件结束
+        //定位控件
+        AMap.plugin("AMap.Geolocation", function () {
+            geolocation = new AMap.Geolocation({
+                offset: [10, 50],//按钮偏移量
+                convert: true,//转高德坐标
+                position: 'RB',//定位按钮的位置
+                useNative: true,//使用安卓定位sdk
+                // needAddress: true,//需要文字地址
+                // zoomToAccuracy:true,//自适应视野
+                showMarker: false,//不显示点标记
+                showCircle: false,//不显示精度范围
+                panToLocation: false,//定位成功后不要作为地图中心点
+                enableHighAccuracy: false //高精度定位
+            })
+            //显示定位按钮
+            map.addControl(geolocation);
+            geolocation.getCurrentPosition();
+            //定位成功时
+            geolocation.on('complete', function (m) {
+
+                if (myico) {//已有图标
+                    // console.log('已有图标')
+                    // console.log(m)
+                    //移动自己的图标
+                    mypos = [m.position.lng, m.position.lat];
+                    myico.moveTo(mypos, {
+                        duration: 800,
+                        autoRotation: false//不旋转
+                    });
+                    //发送自己的位置
+                    // console.log('发送位置1');
+                    Send(JSON.stringify({
+                        a: mypos,
+                        n: name,
+                        id: cid
+                    }))
+
+
+                } else {//没有图标，只运行1次。
+                    console.log('新增自己图标')
+                    // mdd.value = m.formattedAddress;//显示自己的文字地址
+                    AMap.plugin('AMap.MoveAnimation', function () {
+                        myico = new AMap.Marker({
+                            map: map,
+                            position: m.position,
+                            offset: [-18, -36],
+                            content: '<img src="https://a.amap.com/jsapi_demos/static/resource/img/user.png" style="width:36px">',
+                            label: {
+                                content: name,
+                                direction: 'right',
+                                offset: [0, -26]
+                            }
+                        })
+                        myico.on('click', Click);
+                    })
+
+                    setTimeout(() => {
+                        map.setFitView();//自适应显示全部
+                    }, 1000);
+
+                    setInterval(() => {
+                        geolocation.getCurrentPosition();//再次定位
+                    }, 6000);
+                }
+
+            })
+        })//定位控件结束
+
+
+    }
+
+
+    function Send(msg) {
+        msg = CryptoJS.AES.encrypt(msg, key).toString();//加密
+        MQTT.send(topic, msg, 1, retained);
+    }
+
+
+    function but_c() {
+        map.setFitView();//自适应显示全部
+    }
+
+    function but_d() {
+        map.setCenter(mypos);//以自己的位置为中心
+    }
+
+    //生成稍微稳定id
+    function Getid() {
+        canvas = document.createElement('canvas');
+        ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillText(CryptoJS.MD5(navigator.userAgent), 0, 10);
+        return CryptoJS.MD5(canvas.toDataURL('image/jpeg')).toString();
+    }
+
+    //随机一个名字
+    function Name() {
+        names = ["宝玉", "曹操", "超人", "妲己", "黛玉", "貂蝉", "关羽", "杰瑞", "刘备", "路飞", "洛基", "吕布", "麦兜", "玫瑰", "灭霸", "鸣人", "哪吒", "佩琪", "乔治", "沙僧", "汤姆", "唐僧", "悟空", "星爵", "虚竹", "杨过", "鹰眼", "张飞", "阿童木", "奥特曼", "白素贞", "白云生", "蝙蝠侠", "步惊云", "楚留香", "风清扬", "钢铁侠", "红太狼", "花满楼", "花木兰", "花无缺", "灰太狼", "机器猫", "金刚狼", "蓝精灵", "懒羊羊", "李寻欢", "梁山伯", "令狐冲", "柳余恨", "鲁智深", "绿巨人", "美人鱼", "美羊羊", "米老鼠", "木婉清", "皮卡丘", "皮皮鲁", "秋凤梧", "任我行", "软绵绵", "闪电侠", "圣斗士", "史努比", "水灵光", "孙悟空", "唐老鸭", "韦小宝", "喜羊羊", "萧别离", "小龙女", "小王子", "小燕子", "燕南天", "叶孤城", "蜘蛛侠", "诸葛亮", "猪八戒", "祝英台", "东方不败", "独孤求败", "哆啦A梦", "火箭浣熊", "蜡笔小新", "雷神", "慕容秋水", "奇异博士", "神奇女侠", "司空摘星", "西门吹雪", "萧十一郎", "天山童姥", "诸葛正我", "铁扇公主", "纳兰若水", "冷月清清", "独孤一方", "南宫朔月", "百里芷嫣", "飞天小女警", "美少女战士"];
+        i = Math.floor(Math.random() * names.length);
+        return names[i];
+    }
+    // setTimeout(() => {
+    //     MQTT.send(topic, '', 1, true);//去除保留消息
+    // }, 3000);
+
+    let renshu = 0;
+    function Renshu(i) {
+        if (i === 1) {
+            renshu++;
+        } else {
+            renshu--;
+            if (renshu < 1) {
+                renshu = 1;
+            }
+        }
+        if (renshu === 1) {
+            but_b.value = '当前 ' + renshu + ' 人在线（自己）';
+        } else {
+            but_b.value = '当前 ' + renshu + ' 人在线';
+        }
+    }
+    Renshu(1);
+
+
+    function Click(p) {
+        map.setCenter(p.target._position);
+        setTimeout(() => {
+            map.setZoom(18);
+        }, 800);
+    }
+</script>
+
+</html>

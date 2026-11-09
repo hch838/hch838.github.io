@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>我的轨迹</title>
+    <script>
+        if(!location.search){
+            location.href='https://ditu.amap.com/';
+        };
+    </script>
+    <script src="https://webapi.amap.com/maps?v=1.4.14&key=47d57deacf67daf4fe68b31c3dcdc253"></script>
+    <style>
+        html,
+        body,
+        #container {
+            margin: 0;
+            height: 100%;
+        }
+        .in{
+        position: absolute;
+        top: 0;
+        right: 0;
+        z-index: 200;
+        text-align: right;
+        }
+        .inleft{
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        z-index: 200;
+        }
+        #shijian{
+            color: #00f;
+        }
+    </style>      
+    </head>
+<body>
+    <div id="container"></div>
+    <div class="inleft">
+        <input type="button" value="" id="chufashijian"><br>
+        <input type="button" value="" id="zuihoushijian">
+    </div>
+    <div class="in">
+        <input type="button" value="暂无数据" id="shijian"><br>
+        <input type="button" value="" id="xingshishijian"><br>
+        <input type="button" value="" id="gongli">
+    </div>      
+    <script>
+        let map = new AMap.Map("container");
+        let xhr = new XMLHttpRequest();
+        let gps = {};
+        xhr.open('GET','https://tsapi.amap.com/v1/track/terminal/trsearch'+ location.search +'&key=8aeec61b8d5e8a187ef462f912760781&sid=39156&pagesize=999', true);
+        xhr.onreadystatechange = function() {
+            if(xhr.readyState === 4 && xhr.status === 200) {
+                // console.log('原始数据');
+                // console.log(xhr.responseText);
+                if(xhr.responseText.indexOf('counts":0')>0){
+                    alert('暂无数据');
+                }else{
+                    shijian.value='@到达我这里要多久？';
+                    shijian.onclick =()=>dingwei();
+                    gps = JSON.parse(xhr.responseText).data.tracks[0].points;
+                    let chufatime =gps[0].locatetime;
+                    let zuihoutime =gps[gps.length-1].locatetime;
+                    let xingshitime = parseInt((zuihoutime-chufatime)/60000);
+                    xingshitime = xingshitime/60>=1?parseInt(xingshitime/60)+'小时'+xingshitime%60+'分钟':xingshitime+'分钟';
+                    xingshishijian.value = '已行驶'+ xingshitime;
+                    chufatime = new Date(chufatime).toLocaleString('chinese',{hour12:false});
+                    zuihoutime = new Date(zuihoutime).toLocaleString('chinese',{hour12:false});
+                    chufashijian.value = '出发时间'+ chufatime;
+                    zuihoushijian.value = '位置最后更新时间'+ zuihoutime;
+                    // console.log("gps原始坐标");
+                    // console.log(gps);
+                    let gpsarr=[];
+                    for(let i=0;i<gps.length;i++){
+                        gpsarr.push(gps[i].location.split(','));
+                    }
+                    // console.log("gps数组gpsarr");
+                    // console.log(gpsarr);
+                    zhuangaode(gpsarr);
+                }
+            }
+        }
+        xhr.send(null);
+        let gaode = [];
+        let dian0 = [];//起点
+        let dian1 = [];//终点
+        function zhuangaode(gpsarr){
+            AMap.convertFrom(gpsarr, "gps", function(status, result) {
+                if (result.info === "ok") {
+                    gaode = result.locations; //gps转高德
+                    // console.log("高德坐标gaode");
+                    // console.log(gaode);
+                    dian0 = [gaode[0].lng,gaode[0].lat];
+                    dian1 = [gaode[gaode.length-1].lng,gaode[gaode.length-1].lat];
+                    new AMap.Marker({ position:dian0, map:map });
+                    new AMap.Marker({ position:dian1, map:map });
+                    map.add(
+                        new AMap.Polyline({
+                            path: gaode,
+                            strokeWeight: 5,
+                            strokeOpacity: 0.5,
+                            strokeColor: "red",
+                            showDir: true
+                        })
+                    ); //显示原始轨迹
+                    map.setFitView(); //保证所有覆盖物都在视野范围内
+                    jiupian(gaode);
+                    // donghua(gaode);
+                }
+            });
+        }
+        let li = 50;//默认公里数，会被纠偏后的公里数覆盖
+        function jiupian(gaode){
+            let gaode2 = []; //纠偏前高德对象
+            let tm0 = parseInt(gps[0].locatetime/1000);
+            for (let i = 0; i < gaode.length; i++) {
+                let tm = i===0? tm0 : parseInt(gps[i].locatetime/1000)-tm0;
+                // console.log(tm);
+                gaode2.push({
+                    x: gaode[i].lng,
+                    y: gaode[i].lat,
+                    sp: 50,
+                    ag: 0,
+                    tm: tm
+                });
+            }
+            // console.log("纠偏前高德对象gaode2");
+            // console.log(gaode2);
+            //开始纠偏
+            let gaode3 = []; //纠偏后高德数组
+            AMap.plugin("AMap.GraspRoad", function() {
+                let grasp = new AMap.GraspRoad();
+                grasp.driving(gaode2, function(error, result) {
+                    if (!error) {
+                        let newPath = result.data.points; //纠偏后的轨迹
+                        li = result.data.distance; //里程
+                        // console.log("纠偏后的对象newPath");
+                        // console.log(newPath);
+                        gongli.value='已行驶'+ parseInt(li/1000) +'公里';
+                        for (let i = 0; i < newPath.length; i++) {//对象转数组
+                            gaode3.push([newPath[i].x, newPath[i].y]);
+                        }
+                        gaode3.unshift(dian0);//添加原始起点
+                        gaode3.push(dian1);//添加原始终点
+                        // console.log("纠偏后数组gaode3");
+                        // console.log(gaode3);
+                        map.add(
+                            new AMap.Polyline({
+                                path: gaode3,
+                                strokeWeight: 8,
+                                strokeOpacity: 0.8,
+                                strokeColor: "purple",
+                                showDir: true
+                            })
+                        ); //显示纠偏轨迹
+                        map.setFitView(); //保证所有覆盖物都在视野范围内
+                        donghua(gaode3);
+                    }
+                });
+            });
+        }
+        function donghua(guiji){
+            let che = new AMap.Marker({
+                map: map,
+                position: guiji[0],
+                icon: "1.png",
+                offset: new AMap.Pixel(-24, -12),//车偏移
+                // offset: new AMap.Pixel(-22, -50),//人偏移
+                autoRotation: true,//移动时自动旋转
+            });
+            let passedPolyline = new AMap.Polyline({//走过的线条
+                map: map,
+                strokeColor: "#ff0",
+                strokeWeight: 2,
+            });
+            che.on('moving', function (e) {//绘制走过的线条
+                passedPolyline.setPath(e.passedPath);
+            });
+            setTimeout(function(){
+                che.moveAlong(guiji,li*0.36,'',true)//按照纠偏后的轨迹10秒走完
+            },1000)
+        }
+        function dingwei(){
+            shijian.value='请稍等...';
+            // 以下定位模块
+            AMap.plugin('AMap.Geolocation', function() {
+                let geolocation = new AMap.Geolocation({
+                    enableHighAccuracy: true,//是否使用高精度定位，默认:true
+                    timeout: 15000,          //超时
+                });
+                geolocation.getCurrentPosition(function(status,result){
+                    if(status=='complete'){
+                        let my = [result.position.lng,result.position.lat];
+                        let address = result.formattedAddress.replace('市','市\n');
+                        // 以下路线规划
+                        AMap.plugin('AMap.Driving', function() {
+                            let driving = new AMap.Driving({
+                                policy: AMap.DrivingPolicy.LEAST_TIME//最快方式
+                            })
+                            driving.search(gaode[gaode.length-1], my, function (status, result) {
+                                let fen = parseInt(result.routes[0].time/60)
+                                fen = fen/60>=1?parseInt(fen/60)+'小时'+fen%60+'分钟':fen+'分钟';
+                                shijian.value='@到达我这里要多久？';
+                                alert('您的位置大概是：\n'+address +'\n\n到达您这里大概需要时间：\n' + fen)
+                            })
+                        });
+                        // 以上路线规划
+                    }
+                });
+            });
+            // 以上定位模块
+        }
+    </script>
+</body>
+</html>

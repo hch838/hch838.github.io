@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>浏览器定位c</title>
+    <script src='https://webapi.amap.com/maps?v=2.0&key=47d57deacf67daf4fe68b31c3dcdc253'></script>
+</head>
+
+<body>
+    <div>定位中...</div>
+</body>
+<script>
+    AMap.plugin("AMap.Geolocation", function () {
+        geolocation = new AMap.Geolocation({
+            convert: true,//转高德坐标
+            useNative: true,//使用安卓定位sdk
+            needAddress: true,//需要文字地址
+        })
+        geolocation.getCurrentPosition(function (status, p) {
+            if (status == 'complete') {
+                //alert('精度：' + p.accuracy + '\n坐标：' + p.position + '\n位置：' + p.addressComponent.neighborhood + '\n地址：' + p.formattedAddress)
+                fetch('http://localhost:1821/gps', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        acc: p.accuracy,
+                        lat: p.position.lat,
+                        lng: p.position.lng,
+                        address: p.formattedAddress
+                    })
+
+                })
+                    .then(() => window.close())
+            }
+        });
+    })
+</script>
+
+</html>

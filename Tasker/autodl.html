@@ -1,0 +1,8 @@
+<script>
+    let i = location.search;
+    i = i.replace(/^\?/,'');
+    let a = document.createElement('a');
+    a.setAttribute('download',i);
+    a.setAttribute('href',i);
+    a.click();
+</script>

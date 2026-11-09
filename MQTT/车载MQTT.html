@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <style>
+        * {
+            margin: 0;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.1.0/paho-mqtt.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+</head>
+
+<body>
+    <div id="List">
+    </div>
+    <script>
+        let msglist = [];//装消息
+        let MQTT,
+            time = Date.now(),//测试连接速度
+            par = location.search ? JSON.parse('{"' + location.search.substr(1).replace(/\=/g, '":"').replace(/&/g, '","') + '"}') : {},
+            fwq = par.fwq ? par.fwq : 0,//服务器序号
+            key = par.key ? par.key : 'MenQianDaQiaoXiaYouGuoYiQunYaKuaiLaiKuaiLaiShuYiShu24678',//AES加密密钥
+            topic = par.topic ? par.topic : 'clip',//订阅和发送的主题
+            userName = par.username ? par.username : '',//账号
+            password = par.password ? par.password : '',//密码
+            clientid = par.clientid ? par.clientid : Date.now().toString(36),//客户端id
+            fwqarr = [
+                'wss://test.mosquitto.org:8081/mqtt',   //0法国1800，保留消息久
+                'wss://broker.emqx.io:8084/mqtt',       //1美国1300
+                'wss://mqtt.eclipseprojects.io/mqtt',   //2美国1400
+                'wss://broker.hivemq.com:8884/mqtt',    //3德国2000
+                'wss://public.mqtthq.com:8084/mqtt',    //4美国1200，保留消息久，但容易连接失败
+                'wss://bemfa.com:9504/wss'              //5巴法云广州30
+            ],//服务器列表
+            url = par.url ? par.url : fwqarr[fwq],//服务器
+            willMessage = new Paho.Message(CryptoJS.AES.encrypt(JSON.stringify('我掉啦'), key).toString());
+        willMessage.destinationName = topic;
+
+        MQTT = new Paho.Client(url, clientid);
+        MQTT.onConnected = () => MsgList('【连接成功】：' + MQTT.host);
+        MQTT.onConnectionLost = (m) => MsgList('【连接断开】：' + m.errorMessage);
+        MQTT.onMessageArrived = onMessageArrived;//收到消息时
+        MQTT.connect({
+            userName: userName,
+            password: password,
+            willMessage: willMessage,
+            keepAliveInterval: 999999,
+            reconnect: true, //连接丢失时尝试重新连接
+            onFailure: () => MsgList('【连接失败】'),//连接请求失败或超时
+            onSuccess: () => {//连接确认时
+                MsgList('【连接确认】：用时' + (Date.now() - time));
+                MQTT.subscribe(topic, {//订阅主题
+                    qos: 1,
+                    onFailure: () => MsgList('【订阅失败】：' + topic),
+                    onSuccess: () => MsgList('【订阅成功】：' + topic)
+                });
+                MQTT.send(topic, '我连接成功啦', 1, true);
+            }
+        });
+
+
+        function onMessageArrived(data) {//收到消息
+            console.log('【原始内容】：' + data.payloadString);
+            if (data.payloadString.indexOf('U2FsdGVkX') === 0) {
+                msg = CryptoJS.AES.decrypt(data.payloadString, key).toString(CryptoJS.enc.Utf8);//解密
+            } else {
+                msg = data.payloadString;
+            }
+            MsgList('【收到消息】：【' + data.topic + '】' + msg);
+            // console.log('qos：' + data.qos);
+            // console.log('订阅号：' + data.topic);
+            // console.log('保留消息：' + data.retained);
+            if (msg.indexOf('{') === 0) {
+                msg = JSON.parse(msg);
+                console.log(msg)
+            }
+        }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        function MsgList(a) {
+            msglist.unshift(a);
+            msglist.length > 50 ? msglist.pop() : 0;
+            List.innerHTML = '';
+            List.insertAdjacentHTML("beforeend", '<p>' + msglist.join('</p><p>') + '</p>')
+        }
+    </script>
+</body>
+
+</html>

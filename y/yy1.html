@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>轨迹</title>
+    <style>
+        html,
+        body,
+        #container {
+            margin: 0;
+            height: 100%;
+        }
+
+        #shijian {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            z-index: 200;
+        }
+
+        .aa {
+            box-shadow: 0 0 3px 2px #A020F0;
+            width: 20px;
+            height: 20px;
+            transform: rotate(45deg);
+        }
+
+        .qq {
+            position: absolute;
+            border-radius: 20px;
+            transform: rotate(-45deg);
+            top: -20px;
+            left: -20px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id='container'>加载中...</div>
+    <input type="button" value="" id="shijian" onclick="Play()">
+    <script src='https://webapi.amap.com/maps?v=2.0&key=47d57deacf67daf4fe68b31c3dcdc253'></script>
+    <script>
+        let key = JSON.parse('{"' + location.search.substr(1).replace(/\=/g, '":"').replace(/&/g, '","') + '"}')
+        let pi = 1;
+        let guiji = [];
+        let loctime = [];
+        let speed = [];
+        let endtime;
+        let dj = 1;
+
+        function BaiDu(j) {
+            t = JSON.stringify(j.points);
+            t = t.match(/(?<=de":)\d+\.\d{1,6}/g)
+            let n;
+            for (let i = 0; i < j.points.length; i++) {
+                guiji.push([1 * t[2 * i + 1], 1 * t[2 * i]]);
+                loctime.push(j.points[i].loc_time);
+                speed.push(j.points[i].speed);
+                if (j.points[i + 1]) {
+                    n = j.points[i + 1].loc_time - j.points[i].loc_time;
+                    if (n > key.duan) {
+                        endtime = j.points[i].loc_time;
+                        break;
+                    }
+                }
+            }
+            n = n ? n : key.duan + 1;
+            if (n > key.duan || j.end_point.loc_time === j.points[j.points.length - 1].loc_time) {
+                endtime = endtime ? endtime : j.end_point.loc_time;
+                Getlicheng();
+                GaoDe();
+            } else {
+                GetData(pi++);
+            }
+        }
+
+        function GaoDe() {
+            container.innerHTML = '有' + guiji.length + '个坐标点';
+            map = new AMap.Map("container", {
+                zoom: 17,
+                center: guiji[0]
+            });
+
+            if (key.qq) {//有QQ号就显示QQ头像
+                at = false;//不旋转
+                AMap.plugin('AMap.MoveAnimation', function () {
+                    marker = new AMap.Marker({
+                        map: map,
+                        position: guiji[0],
+                        content: "<div class=\"aa\"><img class=\"qq\" src=\"http://q4.qlogo.cn/g?b=qq&nk=" + key.qq + "&s=40\"></div>",
+                        offset: [-10, -24]
+                    });
+                });
+            } else {//没QQ就加载小车
+                at = true;//旋转
+                AMap.plugin('AMap.MoveAnimation', function () {
+                    marker = new AMap.Marker({
+                        map: map,
+                        position: guiji[0],
+                        icon: "0.png",
+                        offset: [-12, -24]
+                    });
+                });
+            }
+
+            let polyline = new AMap.Polyline({
+                map: map,
+                path: guiji,
+                showDir: true,
+                strokeColor: "#00f",
+                strokeWeight: 8
+            });
+            map.setFitView();
+
+            let passedPolyline = new AMap.Polyline({
+                map: map,
+                strokeColor: "#ff0",
+                strokeWeight: 4
+            });
+
+            marker.on('moving', function (e) {
+                passedPolyline.setPath(e.passedPath);
+                map.setCenter(e.passedPos);
+                if (!at && e.progress === 1) {
+                    time = new Date(1000 * loctime[e.index]).toLocaleString('zh', { hour12: false });
+
+                    marker.setLabel({
+                        "content": time + " " + speed[e.index].toFixed(0) + "km/h",
+                        "offset": [20, -50]
+                    });
+                }
+            });
+
+            marker.on('movealong', function () {
+                dj = 2;
+                console.log('移动结束')
+            })
+
+            if (guiji.length > 1) {
+                setTimeout(Go, 2000)
+            }
+        }
+
+        function Go() {
+            marker.moveAlong(guiji, {
+                duration: 50,
+                autoRotation: at
+            });
+        }
+
+
+
+
+        function GetData() {
+            console.log('获取云端数据' + pi)
+            let i = document.createElement('script');
+            i.src = "https://yingyan.baidu.com/api/v3/track/gettrack?callback=BaiDu&coord_type_output=gcj02&page_size=600&page_index=" + pi + "&" + location.search.substr(1);
+            document.body.appendChild(i);
+            document.body.removeChild(i);
+        }
+        GetData();
+
+        function Getlicheng() {
+            console.log('获取里程数据')
+            let i = document.createElement('script');
+            i.src = "https://yingyan.baidu.com/api/v3/track/getdistance?callback=BaiDulicheng&ak=" + key.ak + "&service_id=" + key.service_id + "&entity_name=" + key.entity_name + "&start_time=" + key.start_time + "&end_time=" + endtime + "&ttt=" + Date.now();
+            document.body.appendChild(i);
+            document.body.removeChild(i);
+        }
+
+        function BaiDulicheng(j) {
+            j = j.distance / 1000;
+            j = j.toFixed(1);
+            k = endtime - loctime[0];
+            h = Math.floor((k % 86400) / 3600);
+            m = Math.floor(((k % 86400) % 3600) / 60);
+            s = Math.floor(((k % 86400) % 3600) % 60);
+            h = h ? h + '小时' : '';
+            m = m ? m + '分' : '';
+            s = s ? s + '秒' : '';
+            shijian.value = '行驶总里程：' + j + '公里，总时间：' + h + m + s;
+        }
+
+        function Play() {
+            if (dj === 1) {
+                dj = 0;
+                marker.pauseMove();
+            } else {
+                if (dj === 2) {
+                    Go()
+                } else {
+                    marker.resumeMove();
+                }
+                dj = 1;
+            }
+        }
+
+    </script>
+</body>
+
+</html>

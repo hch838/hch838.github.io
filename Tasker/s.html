@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <style>
+        h2,
+        h3,
+        h4 {
+            text-align: center;
+        }
+    
+        #bbbb,
+        #dddd,
+        a {
+            text-align: center;
+            display: block;
+            margin: 10px auto;
+        }
+    </style></head>
+<body>
+    <a id="aaa">在线导入</a>
+    <a id="ddd">下载文件</a>
+    <input id="bbbb" type="button" value="在线导入">
+    <input id="dddd" type="button" value="下载文件">
+</body>
+<script>
+    var url='taskertask://H4sIAAAAAAAAAFWQsQ3CMBBFazJFdD0Yh9iksC0h0VDDAiaxUBRIpOSUDaioGYGaio51QIyBLwYkKp//f/K/b7WxXeXapUUbd60GiIu+1MAhxl6DmPBkIsZbhxZMNFIEDxj6IU3nJI5UXlh0hksuZCIllzKbKRZEst2fnYgs5Yq5n10Wxr+kmD/pWh+ceVzvj+PleTu9rmfFSCFnkWPZ1EO8zXEKce80hBX8Dk3hjEgzH0zToK2xDXS7+9AzME2lmDcCsarxS/jGvd1TczaksRBHrRnVNlE4w1+Z6A2zQcpDOQEAAA==';
+    aaa.href = url;
+    bbbb.onclick = () => location.href = url
+</script>
+</html>

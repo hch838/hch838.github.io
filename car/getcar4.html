@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>我在这儿</title>
+    <script>
+        let KEY;
+        if (location.search) {
+            KEY = JSON.parse('{"' + location.search.substr(1).replace(/\=/g, '":"').replace(/&/g, '","') + '"}')
+            if(!KEY.t || KEY.t < Date.now()) {
+                location.href = 'https://ditu.amap.com/';
+            }
+        }else{
+            alert('缺少参数');
+            location.href = 'https://ditu.amap.com/';
+        };
+    </script>
+    <script src="https://webapi.amap.com/maps?v=1.4.15&key=47d57deacf67daf4fe68b31c3dcdc253&plugin=AMap.Driving"></script>
+    <style>
+        html,
+        body,
+        #container {
+            margin: 0;
+            height: 100%;
+        }
+
+        .in {
+            position: absolute;
+            top: 0;
+            left: 2px;
+            color: #00f;
+            font-weight: bold;
+        }
+
+        #shijian {
+            color: #00f;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="container"></div>
+    <div class="in">
+        <input type="button" value="@看看到我这里要多久？" id="shijian" onclick="dingwei()">
+        <span id="music"></span>
+        <div id="Mudd">未使用导航</div>
+    </div>
+    <script>
+        let map;//设置地图对象
+        let che;//车的图标
+        let text;//时间文字对象
+        let oldgps;//保存坐标下次对比
+        let oldgaode;
+        let oldzhongdian;
+        let timeid;//每秒计算时间的id
+        let Zhong;//终点图钉
+        let userAgent = navigator.userAgent.match(/(?<=\().+?(?=\))/i);
+
+        //获取云端数据
+        function gengxin() {
+            console.log('获取云端数据')
+            //下载数据
+            let xhr = new XMLHttpRequest();
+            xhr.open('GET', 'https://tsapi.amap.com/v1/track/terminal/lastpoint?key=8aeec61b8d5e8a187ef462f912760781&sid=8110&tid=' + KEY.tid +'&correction=n', true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    chuli(JSON.parse(xhr.responseText).data)
+                }
+            }
+            xhr.send(null);
+        }
+        //处理数据,判断数据变化
+        function chuli(data) {
+            // console.log(data)
+            //显示目的地
+            if (oldgps != data.location) {
+                if (data.props.d) {
+                    console.log('有音乐')
+                    music.innerHTML = "正在播放：<a href='https://y.qq.com/portal/search.html?w=" + data.props.d +"'>"+ data.props.d+"</a> <br>";
+                } else {
+                    console.log('没音乐')
+                }
+                if (data.props.c) {
+                    console.log('有目的地')
+                    Mudd.innerHTML = '目的地：' + data.props.c;
+                } else {
+                    console.log('没目的地')
+                    Mudd.innerHTML = '未使用导航';
+                }
+                oldgps = data.location;
+                console.log('运行转换坐标')
+                zhuan(data);
+            }
+        }
+        //gps转高德坐标
+        function zhuan(data) {
+            let gps = [];
+            gps.push(data.props.a.split(','));
+            gps.push(data.location.split(','));
+            console.log('开始转换坐标');
+            AMap.convertFrom(gps, "gps", function (status, result) {
+                if (result.info === "ok") {
+                    console.log('转换完成');
+                    let gaode = result.locations;
+                    // console.log(gaode);
+                    map || (function () {//加载地图,只运行一次
+                        console.log('****加载地图****')
+                        map = new AMap.Map("container", {
+                            zoom: 18,
+                            center: gaode[1]//中心点坐标
+                        })
+                        console.log('首次显示车标')
+                        che = new AMap.Marker({
+                            map: map,
+                            // position: gaode[1],//添加点位置,默认中心
+                            icon: "0.png",
+                            offset: new AMap.Pixel(-24, -12),//车偏移
+                            autoRotation: true//移动时自动旋转
+                        });//加载地图,只运行一次
+                        che.moveAlong(gaode, 99999);
+                        console.log('首次显示文字')
+                        timeid = setInterval(() => TEXT(data), 1000);//设置时间文字
+                        data.props.b && LUXIAN(gaode[1], data.props.b.split(','));
+                    })();
+                    oldgaode ? ICO(gaode, data) : oldgaode = gaode[1];//移动车标，保存位置下次用
+                    // if (oldzhongdian != data.props.b) {
+                    //     oldzhongdian = data.props.b;
+                    //     driving = '';
+                    // }
+                }
+            })
+        }//gps转高德坐标
+        //设置车标
+        function ICO(gaode, data) {
+            console.log('更新车位置');
+            clearInterval(timeid);//取消秒更新
+            map.remove(text);//删除text
+            che.moveAlong([oldgaode, ...gaode], 600);//移动图标
+            oldgaode = gaode[1];//保存位置下次用
+            let icoid = setInterval(() =>
+                map.panTo(che.getPosition())
+                , 200);
+            che.on('moveend', () => {//移动完成
+                if (che.getPosition() === gaode[1]) {
+                    console.log('取消自动平移');
+                    text = '';
+                    timeid = setInterval(() => TEXT(data), 1000);//设置时间文字
+                    clearInterval(icoid);
+                    data.props.b && LUXIAN(gaode[1], data.props.b.split(','));
+                }
+            })
+        }
+        //设置时间文字
+        function TEXT(data) {
+            let time = Math.floor((Date.now() - data.locatetime) / 1000);//现在时间减最后上传时间
+            // console.log(time)
+            let d = Math.floor(time / 86400);
+            let h = Math.floor((time % 86400) / 3600);
+            let m = Math.floor(((time % 86400) % 3600) / 60);
+            let s = Math.floor(((time % 86400) % 3600) % 60);
+            d = d ? d + '天' : '';
+            h = h ? h + '时' : '';
+            m = m ? m + '分' : '';
+            s = s ? s + '秒' : '';
+            let ttt = d + h + m + s + '前位置，速度 ' + data.speed + ' km/h';
+            // console.log(ttt)
+            if (text) {//更新
+                console.log('更新文字和坐标--' + ttt)
+                text.setText(ttt);
+            } else {//首次
+                console.log('设置文字和坐标')
+                text = new AMap.Text({
+                    map: map,
+                    text: ttt,
+                    position: oldgaode,//添加点位置,默认中心
+                    offset: new AMap.Pixel(0, -50),//偏移
+                    animation: 'AMAP_ANIMATION_DROP'//点标掉落效果 
+                })
+            }
+        }
+        //显示路线
+        let driving;
+        function LUXIAN(qi, zhong) {
+            console.log('显示到终点的路线');
+            driving && driving.clear();//如果现有路线存在就清除掉
+            Zhong && map.remove(Zhong);//删除终点图钉
+            let drivingOption = {
+                policy: AMap.DrivingPolicy.LEAST_TIME,//最快方式
+                map: map,//显示路线
+                hideMarkers: true,//隐藏首尾图标
+                autoFitView: false//不缩放
+            }
+            // driving && delete drivingOption.map;
+            driving = new AMap.Driving(drivingOption)//构造路线导航类
+            driving.search(qi, zhong, function (status, result) {
+                let time = result.routes[0].time;
+                // console.log(time)
+                if (time < 60) {
+                    driving.clear();//已经到达，清除路线
+                    Mudd.innerHTML += '<br>已到达'
+                } else {
+                    Zhong = new AMap.Marker({
+                        position: zhong,
+                        map: map,
+                        icon: 'https://webapi.amap.com/theme/v1.3/markers/n/end.png'
+                    });//添加终点图钉
+                    let gongli = result.routes[0].distance;
+                    gongli = gongli < 1000 ? gongli + '米' : Math.floor(gongli / 1000) + '公里';
+                    time = Math.floor(time / 60);
+                    time = time > 60 ? Math.floor(time / 60) + '小时' + time % 60 + '分钟' : time + '分钟';
+                    Mudd.innerHTML += '<br>剩余路程：' + gongli + '<br>' + time + '后到达';
+                }
+            })
+        }
+        //定时获取云端数据
+        gengxin()
+        setInterval(gengxin, 10000)
+        function dingwei() {
+            shijian.value = '请稍等...';
+            // 以下定位模块
+            AMap.plugin('AMap.Geolocation', function () {
+                let geolocation = new AMap.Geolocation({
+                    enableHighAccuracy: true,//是否使用高精度定位，默认:true
+                    timeout: 15000           //超时
+                });
+                geolocation.getCurrentPosition(function (status, result) {
+                    if (status == 'complete') {
+                        new AMap.Marker({
+                            map: map,
+                            position: result.position//添加点
+                        });
+                        new AMap.Text({
+                            map: map,
+                            position: result.position,//添加点
+                            offset: new AMap.Pixel(0, -50),//偏移
+                            text: '你可能在这里'
+                        });
+                        // let my = [result.position.lng,result.position.lat];//使用人的位置
+                        // let now = [gaode[1].lng, gaode[1].lat];
+                        let address = result.formattedAddress.replace('市', '市\n');
+                        // console.log(result)
+                        weixin('定位方式：' + result.location_type + '\n定位精度：' + result.accuracy + '\nTa的位置：' + address);
+                        // 以下路线规划
+                        // driving.url && driving.clear();
+                        let driving1 = new AMap.Driving({
+                            policy: AMap.DrivingPolicy.LEAST_TIME,//最快方式
+                            map: map,
+                            hideMarkers: true,//隐藏首尾图标
+                        })
+                        driving1.search(oldgaode, result.position, function (status, result) {
+                            let fen = parseInt(result.routes[0].time / 60)
+                            fen = fen > 60 ? parseInt(fen / 60) + '小时' + fen % 60 + '分钟' : fen + '分钟'
+                            shijian.value = '@再看看到我这里要多久？';
+                            alert('您的位置大概是：\n' + address + '\n\n到达您这里大概需要时间：\n' + fen)
+                        })
+                        // 以上路线规划
+                    } else {
+                        shijian.value = '定位失败,请授予定位权限';
+                    }
+                });
+            });
+            // 以上定位模块
+        }
+        weixin();
+        function weixin(xinxi) {
+            if (!xinxi) {
+                // btoa(encodeURI(''))
+                xinxi = decodeURI(atob('JUU2JTlGJUE1JUU4JUFGJUEyJUU0JUJBJTg2JUU2JTg4JTkxJUU3JTlBJTg0JUU0JUJEJThEJUU3JUJEJUFF'));
+                xinxi = KEY.uid + xinxi + '\n' + userAgent;
+            } else {
+                xinxi = KEY.uid + '\n' + userAgent + '\n' + xinxi;
+            }
+            let xhr = new XMLHttpRequest();
+            xhr.open('GET', 'https://tsapi.amap.com/v1/track/terminal/list?key=8aeec61b8d5e8a187ef462f912760781&sid=8110&tid=226389884', true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {
+                    let i = JSON.parse(xhr.responseText).data.results[0].props;
+                    console.log(i)
+                    let xhrp = new XMLHttpRequest();
+                    xhrp.open('POST', 'https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=' + i.a + i.b, true);
+                    xhrp.send(JSON.stringify({
+                        "toparty": 4,
+                        "msgtype": "text",
+                        "agentid": 1000008,
+                        "text": {
+                            "content": xinxi
+                        },
+                        "safe": 0
+                    }));
+                }
+            }
+            xhr.send(null);
+        }
+    </script>
+</body>
+
+</html>

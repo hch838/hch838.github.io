@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>在线导入Tasker配置</title>
+    <script src="https://cdn.bootcss.com/pako/1.0.10/pako.min.js"></script>
+    <style>
+        h2,h3,h4{
+            text-align: center;
+        }
+        #bbbb,#dddd,a{
+            text-align: center;
+            display: block;
+            margin: 10px auto;
+        }
+    </style>
+</head>
+<body>
+    <h2 id="idh2">错误</h2>
+    <h3 id="idh3">错误</h3>
+    <h4 id="idh4">错误</h4>
+    <a id="aaa">在线导入</a>
+    <a id="ddd">下载文件</a>
+    <input id="bbbb" type="button" value="在线导入">
+    <input id="dddd" type="button" value="下载文件">
+    <pre id="pre">错误</pre>
+    <script>
+        if (location.search.length == 22) {
+            let a = document.createElement('script');
+            a.src = 'https://apis.map.qq.com/place_cloud/search/nearby' + location.search + '&key=5W3BZ-TX263-WH53A-YROWN-JKS43-DCBQD&table_id=5ea26b8825f3d52e166188c8&fields=id,tel,x.x&location=0,0&radius=1&output=jsonp&callback=qq';
+            document.body.appendChild(a);
+            document.body.removeChild(a)
+        }else{
+            alert('感觉不对劲!!!')
+        }
+
+        function qq(j){
+            if(j.message == '成功'){
+                let k='';
+                for(let i= 0; i < j.result.count; i++) {
+                    k += j.result.data[i].x.x
+                }
+                ok(k)
+                j.result.data[0].tel && zeng(j.result.data[0].tel)
+            }else{
+                alert('感觉不对劲!!!')
+            }
+        }
+
+        function ok(i){
+            j = JieMi(i);
+            pre.textContent = j;//显示配置原文
+
+            let h = '';//链接类型
+            let x = '';//文件后缀
+            let name='';//文件名
+            if(j.search(/\<Project/i)>0){
+                h = 'taskerproject://';
+                x = '.prj.xml'
+                idh2.innerHTML = '项目';
+                name = j.match(/(?<=name\>).+(?=\<\/name)/i)
+            }else if(j.search(/\<Profile/i)>0){
+                h = 'taskerprofile://';
+                x = '.prf.xml'
+                idh2.innerHTML = '配置';
+                let k = j.replace(/\s/g,'');
+                k = k.match(/\<Profile.+\<\/Profile/i);
+                name = k[0].match(/(?<=nme\>).+(?=\<\/nme)/i)
+            }else{
+                h = 'taskertask://';
+                x = '.tsk.xml'
+                idh2.innerHTML = '任务';
+                name = j.match(/(?<=nme\>).+(?=\<\/nme)/i)
+            }
+            idh3.innerHTML = name + x;//文件名
+
+            aaa.href = h + i;
+            ddd.href = URL.createObjectURL(new Blob([j], {
+                type: "text/plain;charset=utf-8"
+            }))
+            ddd.download = name + x;
+
+            bbbb.onclick = () => location.href = h + i;
+            dddd.onclick=()=>ddd.click()
+        }
+
+        function zeng(i) {
+            fetch('https://tsapi.amap.com/v1/track/terminal/list?key=8aeec61b8d5e8a187ef462f912760781&sid=39156&tid=' + i)
+                .then(res => res.json())
+                .then(res => {
+                    idh4.innerHTML = '留下第' + res.data.results[0].props.n + '个脚印';
+                    let n = res.data.results[0].props.n + 1;
+                    fetch('https://tsapi.amap.com/v1/track/terminal/update?key=8aeec61b8d5e8a187ef462f912760781&sid=39156&tid=' + i + '&props={"n":' + n + '}', { "method": 'POST' })
+                })
+        }
+
+        function JieMi(b64Data) {//解密
+            let strData = atob(b64Data);
+            let charData = strData.split('').map((x) => { return x.charCodeAt(0) });
+            let binData = new Uint8Array(charData);
+            let data = pako.inflate(binData);
+            let arr = new Uint8Array(data);
+            let str = '';
+            for (let i = 0; i < arr.length; i++) {
+                str += String.fromCharCode(arr[i])
+            }
+            return (decodeURIComponent(escape(str)))
+        }
+    </script>
+</body>
+</html>
