@@ -1,0 +1,258 @@
+name: Tasker Direct APK Sync
+
+on:
+  schedule:
+    # 每 2 小时探测一次。高峰可能延迟 10-30 分钟，偶尔跳过。
+    - cron: "0 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tasker-sync
+  cancel-in-progress: false
+
+env:
+  # 开发者下载入口页，链接写在其 HTML 的 JS 里
+  SOURCE_PAGE: "https://tasker.joaoapps.com/direct_purchase_download"
+  R2_BUCKET: "dl273150"
+  R2_HOST: "9c41c820ae166ca1726efc6ffeb42da5.r2.cloudflarestorage.com"
+  # R2 里固定用这个名字，覆盖写，永不累积
+  R2_KEY: "Tasker.latest.apk"
+  PUBLIC_BASE: "https://dl.273150.xyz"
+  HTML_FILE: "dl/index.html"
+  STATE_FILE: ".sync-state.json"
+  TZ: "Asia/Shanghai"
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve source URL
+        id: src
+        run: |
+          set -euo pipefail
+          curl -sfS -A "Mozilla/5.0" --max-time 40 "$SOURCE_PAGE" -o /tmp/page.html || {
+            echo "::error::无法访问入口页 $SOURCE_PAGE"
+            exit 1
+          }
+
+          URL=$(python3 - <<'PY'
+          import re
+          html = open('/tmp/page.html', encoding='utf-8', errors='ignore').read()
+          found = None
+          for line in html.splitlines():
+              s = line.strip()
+              if s.startswith('//'):
+                  continue
+              m = re.search(r'window\.location\.href\s*=\s*"([^"]+)"', line)
+              if m:
+                  found = m.group(1)
+          print(found or '')
+          PY
+          )
+
+          if [ -z "$URL" ]; then
+            echo "::error::入口页里没有找到跳转链接，页面结构可能变了"
+            cat /tmp/page.html
+            exit 1
+          fi
+          echo "当前真实链接: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Probe remote headers
+        id: probe
+        run: |
+          set -euo pipefail
+          URL="${{ steps.src.outputs.url }}"
+
+          curl -sIL -A "Mozilla/5.0" --max-time 90 "$URL" -o /tmp/headers.txt || true
+
+          ETAG=$(grep -i '^etag:' /tmp/headers.txt | tail -1 | sed 's/^[Ee][Tt]ag:[[:space:]]*//' | tr -d '\r"' || true)
+          CLEN=$(grep -i '^content-length:' /tmp/headers.txt | tail -1 | sed 's/^[Cc]ontent-[Ll]ength:[[:space:]]*//' | tr -d '\r' || true)
+          LASTMOD=$(grep -i '^last-modified:' /tmp/headers.txt | tail -1 | sed 's/^[Ll]ast-[Mm]odified:[[:space:]]*//' | tr -d '\r' || true)
+
+          echo "ETag         : ${ETAG:-（无）}"
+          echo "Content-Length: ${CLEN:-（无）}"
+          echo "Last-Modified : ${LASTMOD:-（无）}"
+
+          echo "etag=$ETAG"   >> "$GITHUB_OUTPUT"
+          echo "clen=$CLEN"   >> "$GITHUB_OUTPUT"
+          echo "lastmod=$LASTMOD" >> "$GITHUB_OUTPUT"
+
+      - name: Decide whether to sync
+        id: decide
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+
+          url   = os.environ.get("NEW_URL", "")
+          etag  = os.environ.get("NEW_ETAG", "")
+          clen  = os.environ.get("NEW_CLEN", "")
+          state_path = pathlib.Path(os.environ["STATE_FILE"])
+
+          old = {}
+          if state_path.exists():
+              try:
+                  old = json.loads(state_path.read_text(encoding="utf-8"))
+              except Exception:
+                  old = {}
+
+          reasons = []
+          if url and url != old.get("source_url"):
+              reasons.append("链接变化")
+          if etag and etag != old.get("etag"):
+              reasons.append("ETag 变化")
+          if clen and clen != old.get("content_length"):
+              reasons.append("文件大小变化")
+          # 一个信号都拿不到时，保守地每次都同步
+          if not etag and not clen and not url:
+              reasons.append("无可比对信号")
+
+          changed = bool(reasons)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"changed={'true' if changed else 'false'}\n")
+              f.write(f"reasons={'; '.join(reasons)}\n")
+
+          print("判定:", "需要同步" if changed else "无变化")
+          if reasons:
+              print("依据:", "; ".join(reasons))
+          print("旧记录:", json.dumps({k: old.get(k) for k in ("source_url", "etag", "content_length")}, ensure_ascii=False))
+          PY
+        env:
+          NEW_URL: ${{ steps.src.outputs.url }}
+          NEW_ETAG: ${{ steps.probe.outputs.etag }}
+          NEW_CLEN: ${{ steps.probe.outputs.clen }}
+          STATE_FILE: ${{ env.STATE_FILE }}
+
+      - name: Download package
+        if: steps.decide.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          URL="${{ steps.src.outputs.url }}"
+          curl -sfSL -A "Mozilla/5.0" --max-time 600 "$URL" -o /tmp/payload.apk || {
+            echo "::error::下载失败"
+            exit 1
+          }
+
+          SIZE=$(stat -c%s /tmp/payload.apk)
+          echo "已下载 $(numfmt --to=iec $SIZE)"
+
+          MAGIC=$(head -c 2 /tmp/payload.apk)
+          if [ "$MAGIC" != "PK" ]; then
+            echo "::error::下载内容不是 APK（zip）格式，前两字节为 $MAGIC，可能被拦截或返回了错误页"
+            head -c 300 /tmp/payload.apk
+            exit 1
+          fi
+          echo "格式校验通过（PK 头）"
+
+          if [ "$SIZE" -lt 1048576 ]; then
+            echo "::error::文件过小（$SIZE 字节），疑似异常"
+            exit 1
+          fi
+
+      - name: Upload to R2
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          set -euo pipefail
+          URL="${{ steps.src.outputs.url }}"
+          RAWNAME=$(basename "${URL%%\?*}")
+          FILENAME=$(python3 -c "import urllib.parse,sys; print(urllib.parse.unquote(sys.argv[1]))" "$RAWNAME")
+          echo "原始文件名: $FILENAME"
+
+          aws s3 cp /tmp/payload.apk "s3://$R2_BUCKET/$R2_KEY" \
+            --endpoint-url "https://$R2_HOST" \
+            --content-type "application/vnd.android.package-archive" \
+            --content-disposition "attachment; filename=\"$FILENAME\"" \
+            --no-progress
+
+          echo "已上传 s3://$R2_BUCKET/$R2_KEY"
+          echo "filename=$FILENAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum /tmp/payload.apk | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify public URL
+        if: steps.decide.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -A "Mozilla/5.0" \
+            --max-time 90 "$PUBLIC_BASE/$R2_KEY")
+          echo "公开地址 HTTP $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::上传后公开地址不可访问，中断发布以免页面指向坏链接"
+            exit 1
+          fi
+
+      - name: Update page and state
+        if: steps.decide.outputs.changed == 'true'
+        env:
+          NEW_URL: ${{ steps.src.outputs.url }}
+          NEW_ETAG: ${{ steps.probe.outputs.etag }}
+          NEW_CLEN: ${{ steps.probe.outputs.clen }}
+          NEW_LASTMOD: ${{ steps.probe.outputs.lastmod }}
+          NEW_SHA: ${{ steps.upload.outputs.sha256 }}
+          NEW_FILENAME: ${{ steps.upload.outputs.filename }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, re, datetime, pathlib
+
+          size = int(os.environ["NEW_CLEN"]) if os.environ.get("NEW_CLEN") else 0
+          shown = 0; human = "未知"
+          if size:
+              shown = size
+              for unit in ("B", "KB", "MB", "GB"):
+                  if shown < 1024 or unit == "GB":
+                      human = f"{shown:.1f} {unit}" if unit != "B" else f"{shown} B"
+                      break
+                  shown /= 1024
+
+          ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M") + " (北京时间)"
+          fname = os.environ.get("NEW_FILENAME") or "Tasker.Direct.apk"
+          sha = (os.environ.get("NEW_SHA") or "")[:12] or "—"
+
+          p = pathlib.Path(os.environ["HTML_FILE"])
+          html = p.read_text(encoding="utf-8")
+
+          html = re.sub(r'(id="file-name"[^>]*>)[^<]*', lambda m: m.group(1) + fname, html)
+          html = re.sub(r'(id="file-size"[^>]*>)[^<]*', lambda m: m.group(1) + human, html)
+          html = re.sub(r'(id="sync-time"[^>]*>)[^<]*', lambda m: m.group(1) + ts, html)
+          html = re.sub(r'(id="file-hash"[^>]*>)[^<]*', lambda m: m.group(1) + sha, html)
+          html = re.sub(r'(id="dlink"[^>]*href=")[^"]*',
+                        lambda m: m.group(1) + os.environ["PUBLIC_BASE"] + "/" + os.environ["R2_KEY"], html)
+          html = re.sub(r'(id="dtext"[^>]*>)[^<]*', lambda m: m.group(1) + "下载 " + fname, html)
+
+          p.write_text(html, encoding="utf-8")
+
+          pathlib.Path(os.environ["STATE_FILE"]).write_text(json.dumps({
+              "source_url": os.environ.get("NEW_URL", ""),
+              "etag": os.environ.get("NEW_ETAG", ""),
+              "content_length": os.environ.get("NEW_CLEN", ""),
+              "last_modified": os.environ.get("NEW_LASTMOD", ""),
+              "filename": fname,
+              "sha256": os.environ.get("NEW_SHA", ""),
+              "synced_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+          }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+          print(f"页面已更新：{fname} / {human} / {ts}")
+          PY
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "无文件变化，跳过提交。"
+          else
+            git commit -m "sync: update Tasker download"
+            git push
+          fi
